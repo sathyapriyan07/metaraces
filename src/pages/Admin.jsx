@@ -349,7 +349,7 @@ export default function Admin({ initialSection = "dashboard" }) {
   });
   const [seasonImportStats, setSeasonImportStats] = useState({});
   const [includeQualifying, setIncludeQualifying] = useState(false);
-  const [includeFastestLap, setIncludeFastestLap] = useState(false);
+  const [includeFastestLap, setIncludeFastestLap] = useState(true);
   const [includePitStops, setIncludePitStops] = useState(false);
   const seasonImportAbortRef = useRef(false);
   const [mediaForm, setMediaForm] = useState({
@@ -1048,8 +1048,9 @@ export default function Admin({ initialSection = "dashboard" }) {
   const handleSeasonImport = async () => {
     if (!hasSupabase()) return;
     const seasonYear = Number(seasonImportYear);
-    if (!seasonYear || Number.isNaN(seasonYear)) {
-      setStatus("Enter a valid season year.");
+    const seasonError = validateSeason(seasonYear);
+    if (seasonError) {
+      setStatus(seasonError);
       return;
     }
     seasonImportAbortRef.current = false;
@@ -1071,8 +1072,109 @@ export default function Admin({ initialSection = "dashboard" }) {
           },
         }));
       };
-      const ergastRaces = await getSeasonRaces(seasonYear);
+      const fetchJsonWithTimeout = async (url) => {
+        console.log("Season import endpoint:", url);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        try {
+          const res = await fetch(url, { signal: controller.signal });
+          if (!res.ok) {
+            throw new Error("API request failed");
+          }
+          const data = await res.json();
+          return data;
+        } catch (error) {
+          if (error.name === "AbortError") {
+            throw new Error("API unreachable");
+          }
+          if (error.message === "API request failed") {
+            throw new Error("API unreachable");
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      };
+
+      const fetchSeasonSchedule = async () => {
+        const url = `https://ergast.com/api/f1/${seasonYear}.json?limit=1000`;
+        const data = await fetchJsonWithTimeout(url);
+        const races = data?.MRData?.RaceTable?.Races || [];
+        console.log("Season import race count:", races.length);
+        if (!races.length) {
+          throw new Error("Season not available");
+        }
+        return races;
+      };
+
+      const fetchOpenF1Schedule = async () => {
+        const { sessions, meetings } = await fetchOpenF1RaceWeekends(seasonYear);
+        const meetingMap = new Map(
+          meetings.map((meeting) => [meeting.meeting_key, meeting])
+        );
+        const raceSessions = sessions.filter(
+          (session) =>
+            session.session_name === "Race" || session.session_type === "Race"
+        );
+        const ordered = [...raceSessions].sort((a, b) => {
+          const aTime = new Date(a.date_start || a.date_end || 0).getTime();
+          const bTime = new Date(b.date_start || b.date_end || 0).getTime();
+          return aTime - bTime;
+        });
+        const races = ordered.map((session, index) => {
+          const meeting = meetingMap.get(session.meeting_key);
+          const circuitKey = meeting?.circuit_key ?? session.circuit_key;
+          return {
+            race_id: `${seasonYear}-${index + 1}`,
+            season_year: seasonYear,
+            round: index + 1,
+            race_name:
+              meeting?.meeting_name ||
+              `${meeting?.country_name || session.country_name || "Grand Prix"}`,
+            circuit_id: circuitKey ? `openf1-${circuitKey}` : null,
+            date: session.date_start ? session.date_start.split("T")[0] : null,
+            laps: null,
+            banner_url: null,
+          };
+        });
+        const circuits = meetings
+          .filter((meeting) => meeting.circuit_key)
+          .map((meeting) => ({
+            circuit_id: `openf1-${meeting.circuit_key}`,
+            name: meeting.circuit_short_name || meeting.circuit_name,
+            city: meeting.location,
+            country: meeting.country_name,
+            length_km: null,
+            first_grand_prix: null,
+            track_map_url: meeting.circuit_image || null,
+          }));
+        console.log("OpenF1 fallback race count:", races.length);
+        return { races, circuits };
+      };
+
+      let ergastRaces = [];
+      let fallbackCircuits = [];
+      try {
+        ergastRaces = await fetchSeasonSchedule();
+      } catch (error) {
+        if (error.message === "API unreachable") {
+          console.log("Ergast unreachable, falling back to OpenF1");
+          const fallback = await fetchOpenF1Schedule();
+          ergastRaces = fallback.races.map((race) => ({
+            season: String(seasonYear),
+            round: String(race.round),
+            raceName: race.race_name,
+            date: race.date,
+            Circuit: { circuitId: race.circuit_id },
+          }));
+          fallbackCircuits = fallback.circuits;
+        } else {
+          throw error;
+        }
+      }
+
       checkCancelled();
+      console.log("Import progress: importing races");
       const races = mapErgastRaces(ergastRaces).map((race) => ({
         race_id: race.race_id,
         season_year: race.season_year,
@@ -1085,7 +1187,19 @@ export default function Admin({ initialSection = "dashboard" }) {
       updateStats("races", raceInsert.inserted, raceInsert.skipped);
 
       setSeasonImportProgress({ label: "Importing circuits", percent: 15 });
-      const allCircuits = mapErgastCircuits(await getCircuits());
+      console.log("Import progress: importing circuits");
+      let allCircuits = [];
+      if (fallbackCircuits.length) {
+        allCircuits = fallbackCircuits;
+      } else {
+        const circuitsUrl = "https://ergast.com/api/f1/circuits.json?limit=1000";
+        const circuitsData = await fetchJsonWithTimeout(circuitsUrl);
+        const circuits = circuitsData?.MRData?.CircuitTable?.Circuits || [];
+        if (!circuits.length) {
+          throw new Error("No race data returned");
+        }
+        allCircuits = mapErgastCircuits(circuits);
+      }
       checkCancelled();
       const circuitInsert = await insertNewRows(
         "circuits",
@@ -1095,7 +1209,14 @@ export default function Admin({ initialSection = "dashboard" }) {
       updateStats("circuits", circuitInsert.inserted, circuitInsert.skipped);
 
       setSeasonImportProgress({ label: "Importing drivers", percent: 25 });
-      const allDrivers = mapErgastDrivers(await getDrivers());
+      console.log("Import progress: importing drivers");
+      const driversUrl = "https://ergast.com/api/f1/drivers.json?limit=1000";
+      const driversData = await fetchJsonWithTimeout(driversUrl);
+      const drivers = driversData?.MRData?.DriverTable?.Drivers || [];
+      if (!drivers.length) {
+        throw new Error("No race data returned");
+      }
+      const allDrivers = mapErgastDrivers(drivers);
       checkCancelled();
       const driverInsert = await insertNewRows(
         "drivers",
@@ -1105,7 +1226,16 @@ export default function Admin({ initialSection = "dashboard" }) {
       updateStats("drivers", driverInsert.inserted, driverInsert.skipped);
 
       setSeasonImportProgress({ label: "Importing constructors", percent: 35 });
-      const allConstructors = mapErgastConstructors(await getConstructors());
+      console.log("Import progress: importing constructors");
+      const constructorsUrl =
+        "https://ergast.com/api/f1/constructors.json?limit=1000";
+      const constructorsData = await fetchJsonWithTimeout(constructorsUrl);
+      const constructors =
+        constructorsData?.MRData?.ConstructorTable?.Constructors || [];
+      if (!constructors.length) {
+        throw new Error("No race data returned");
+      }
+      const allConstructors = mapErgastConstructors(constructors);
       checkCancelled();
       const constructorInsert = await insertNewRows(
         "constructors",
@@ -1133,7 +1263,14 @@ export default function Admin({ initialSection = "dashboard" }) {
             label: `Importing results (Round ${round})`,
             percent,
           });
-          const ergastResults = await getRaceResults(seasonYear, round);
+          console.log(`Import progress: importing results round ${round}`);
+          const resultsUrl = `https://ergast.com/api/f1/${seasonYear}/${round}/results.json?limit=1000`;
+          const resultsData = await fetchJsonWithTimeout(resultsUrl);
+          const ergastResults =
+            resultsData?.MRData?.RaceTable?.Races?.[0]?.Results || [];
+          if (!ergastResults.length) {
+            throw new Error("No race data returned");
+          }
           checkCancelled();
           const results = mapErgastResults(ergastResults, seasonYear, round);
           const resultsInsert = await insertNewRows(
@@ -1147,8 +1284,38 @@ export default function Admin({ initialSection = "dashboard" }) {
             resultsInsert.skipped
           );
 
+          const fastestLapResult = ergastResults.find(
+            (result) => result?.FastestLap?.rank === "1"
+          );
+          if (fastestLapResult) {
+            const fastestRow = mapErgastFastestLap(
+              fastestLapResult,
+              seasonYear,
+              round
+            );
+            if (fastestRow) {
+              const fastestInsert = await insertNewRows(
+                "fastest_laps",
+                "id",
+                [fastestRow]
+              );
+              updateStats(
+                "fastest_laps",
+                fastestInsert.inserted,
+                fastestInsert.skipped
+              );
+            }
+          }
+
           if (includeQualifying) {
-            const qualifying = await getQualifyingResults(seasonYear, round);
+            const qualifyingUrl = `https://ergast.com/api/f1/${seasonYear}/${round}/qualifying.json?limit=1000`;
+            const qualifyingData = await fetchJsonWithTimeout(qualifyingUrl);
+            const qualifying =
+              qualifyingData?.MRData?.RaceTable?.Races?.[0]
+                ?.QualifyingResults || [];
+            if (!qualifying.length) {
+              throw new Error("No race data returned");
+            }
             checkCancelled();
             const qualifyingRows = mapErgastQualifyingResults(
               qualifying,
@@ -1167,30 +1334,14 @@ export default function Admin({ initialSection = "dashboard" }) {
             );
           }
 
-          if (includeFastestLap) {
-            const fastest = await getFastestLap(seasonYear, round);
-            checkCancelled();
-            const fastestRow = mapErgastFastestLap(
-              fastest,
-              seasonYear,
-              round
-            );
-            if (fastestRow) {
-              const fastestInsert = await insertNewRows(
-                "fastest_laps",
-                "id",
-                [fastestRow]
-              );
-              updateStats(
-                "fastest_laps",
-                fastestInsert.inserted,
-                fastestInsert.skipped
-              );
-            }
-          }
-
           if (includePitStops && seasonYear >= 2012) {
-            const stops = await getPitStops(seasonYear, round);
+            const pitStopsUrl = `https://ergast.com/api/f1/${seasonYear}/${round}/pitstops.json?limit=1000`;
+            const pitStopsData = await fetchJsonWithTimeout(pitStopsUrl);
+            const stops =
+              pitStopsData?.MRData?.RaceTable?.Races?.[0]?.PitStops || [];
+            if (!stops.length) {
+              throw new Error("No race data returned");
+            }
             checkCancelled();
             const stopRows = mapErgastPitStops(stops, seasonYear, round);
             const pitInsert = await insertNewRows("pit_stops", "id", stopRows);
@@ -1200,7 +1351,16 @@ export default function Admin({ initialSection = "dashboard" }) {
       }
 
       setSeasonImportProgress({ label: "Importing standings", percent: 90 });
-      const driverStandings = await getDriverStandings(seasonYear);
+      console.log("Import progress: importing standings");
+      const driverStandingsUrl = `https://ergast.com/api/f1/${seasonYear}/driverStandings.json?limit=1000`;
+      const driverStandingsData =
+        await fetchJsonWithTimeout(driverStandingsUrl);
+      const driverStandings =
+        driverStandingsData?.MRData?.StandingsTable?.StandingsLists?.[0]
+          ?.DriverStandings || [];
+      if (!driverStandings.length) {
+        throw new Error("No race data returned");
+      }
       checkCancelled();
       const driverRows = mapErgastDriverStandings(
         driverStandings,
@@ -1217,7 +1377,16 @@ export default function Admin({ initialSection = "dashboard" }) {
         driverStandingsInsert.skipped
       );
 
-      const constructorStandings = await getConstructorStandings(seasonYear);
+      const constructorStandingsUrl = `https://ergast.com/api/f1/${seasonYear}/constructorStandings.json?limit=1000`;
+      const constructorStandingsData = await fetchJsonWithTimeout(
+        constructorStandingsUrl
+      );
+      const constructorStandings =
+        constructorStandingsData?.MRData?.StandingsTable?.StandingsLists?.[0]
+          ?.ConstructorStandings || [];
+      if (!constructorStandings.length) {
+        throw new Error("No race data returned");
+      }
       checkCancelled();
       const constructorRows = mapErgastConstructorStandings(
         constructorStandings,
@@ -1243,6 +1412,12 @@ export default function Admin({ initialSection = "dashboard" }) {
           ...prev,
           label: "Cancelled",
         }));
+      } else if (error?.message === "Season not available") {
+        setStatus("Season not available.");
+      } else if (error?.message === "No race data returned") {
+        setStatus("No race data returned.");
+      } else if (error?.message === "API unreachable") {
+        setStatus("API unreachable.");
       } else {
         setStatus("Failed to fetch season data from Ergast.");
       }
@@ -2160,8 +2335,9 @@ export default function Admin({ initialSection = "dashboard" }) {
                       type="checkbox"
                       checked={includeFastestLap}
                       onChange={(event) => setIncludeFastestLap(event.target.checked)}
+                      disabled
                     />
-                    Include fastest lap
+                    Fastest laps included (from results)
                   </label>
                   <label className="flex items-center gap-2">
                     <input
