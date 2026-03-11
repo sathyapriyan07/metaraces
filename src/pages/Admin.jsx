@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase, hasSupabase } from "../services/supabaseClient";
 import { importExcelToTable } from "../services/excelImporter";
 import {
@@ -7,6 +7,33 @@ import {
   fetchJolpicaSeason,
   fetchOpenF1RaceWeekends,
 } from "../services/f1Api";
+import {
+  getCircuits,
+  getConstructorStandings,
+  getConstructors,
+  getDriverStandings,
+  getDrivers,
+  getFastestLap,
+  getPitStops,
+  getQualifyingResults,
+  getRaceResults,
+  getSeasonRaces,
+  getSeasons,
+} from "../services/ergastService";
+import {
+  mapErgastCircuits,
+  mapErgastConstructorStandings,
+  mapErgastConstructors,
+  mapErgastDriverStandings,
+  mapErgastDrivers,
+  mapErgastFastestLap,
+  mapErgastPitStops,
+  mapErgastQualifyingResults,
+  mapErgastRaceCircuits,
+  mapErgastRaces,
+  mapErgastResults,
+  mapErgastSeasons,
+} from "../services/ergastMapper";
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTable from "../components/AdminTable.jsx";
 import AdminModal from "../components/AdminModal.jsx";
@@ -34,6 +61,8 @@ const adminSections = [
   { id: "standings", label: "Standings" },
   { id: "driver_assignments", label: "Driver Assignments" },
   { id: "import", label: "Import Center" },
+  { id: "ergast_import", label: "Ergast Import Center" },
+  { id: "season_import", label: "Season Importer" },
   { id: "media", label: "Media Manager" },
 ];
 
@@ -307,6 +336,22 @@ export default function Admin({ initialSection = "dashboard" }) {
   const [apiSource, setApiSource] = useState("races");
   const [apiCircuits, setApiCircuits] = useState([]);
   const [apiYear, setApiYear] = useState(new Date().getFullYear());
+  const [ergastSeason, setErgastSeason] = useState(new Date().getFullYear());
+  const [ergastRound, setErgastRound] = useState(1);
+  const [ergastLoading, setErgastLoading] = useState(false);
+  const [seasonImportYear, setSeasonImportYear] = useState(
+    new Date().getFullYear()
+  );
+  const [seasonImportLoading, setSeasonImportLoading] = useState(false);
+  const [seasonImportProgress, setSeasonImportProgress] = useState({
+    label: "",
+    percent: 0,
+  });
+  const [seasonImportStats, setSeasonImportStats] = useState({});
+  const [includeQualifying, setIncludeQualifying] = useState(false);
+  const [includeFastestLap, setIncludeFastestLap] = useState(false);
+  const [includePitStops, setIncludePitStops] = useState(false);
+  const seasonImportAbortRef = useRef(false);
   const [mediaForm, setMediaForm] = useState({
     table: "drivers",
     id: "",
@@ -351,6 +396,8 @@ export default function Admin({ initialSection = "dashboard" }) {
     if (activeSection === "driver_assignments")
       return "driver_constructor_contracts";
     if (activeSection === "import") return null;
+    if (activeSection === "ergast_import") return null;
+    if (activeSection === "season_import") return null;
     if (activeSection === "media") return null;
     return activeSection;
   }, [activeSection, standingsType]);
@@ -501,6 +548,424 @@ export default function Admin({ initialSection = "dashboard" }) {
       setStatus(`Loaded ${uniqueRaces.length} races from OpenF1.`);
     } catch (error) {
       setStatus(error.message);
+    }
+  };
+
+  const handleErgastImport = async (type) => {
+    if (!hasSupabase()) return;
+    setErgastLoading(true);
+    try {
+      if (type === "drivers") {
+        const mapped = mapErgastDrivers(await getDrivers());
+        if (!mapped.length) {
+          setStatus("No drivers returned from Ergast.");
+          return;
+        }
+        const { error } = await supabase.from("drivers").upsert(mapped, {
+          onConflict: "driver_id",
+        });
+        if (error) throw error;
+        setStatus(`Imported ${mapped.length} drivers from Ergast.`);
+        return;
+      }
+      if (type === "constructors") {
+        const mapped = mapErgastConstructors(await getConstructors());
+        if (!mapped.length) {
+          setStatus("No constructors returned from Ergast.");
+          return;
+        }
+        const { error } = await supabase.from("constructors").upsert(mapped, {
+          onConflict: "constructor_id",
+        });
+        if (error) throw error;
+        setStatus(`Imported ${mapped.length} constructors from Ergast.`);
+        return;
+      }
+      if (type === "circuits") {
+        const mapped = mapErgastCircuits(await getCircuits());
+        if (!mapped.length) {
+          setStatus("No circuits returned from Ergast.");
+          return;
+        }
+        const { error } = await supabase.from("circuits").upsert(mapped, {
+          onConflict: "circuit_id",
+        });
+        if (error) throw error;
+        setStatus(`Imported ${mapped.length} circuits from Ergast.`);
+        return;
+      }
+      if (type === "seasons") {
+        const mapped = mapErgastSeasons(await getSeasons());
+        if (!mapped.length) {
+          setStatus("No seasons returned from Ergast.");
+          return;
+        }
+        const { error } = await supabase.from("seasons").upsert(mapped, {
+          onConflict: "season_id",
+        });
+        if (error) throw error;
+        setStatus(`Imported ${mapped.length} seasons from Ergast.`);
+        return;
+      }
+      if (type === "season_races") {
+        const ergastRaces = await getSeasonRaces(ergastSeason);
+        const races = mapErgastRaces(ergastRaces);
+        if (!races.length) {
+          setStatus("No races returned from Ergast.");
+          return;
+        }
+        const circuitRows = mapErgastRaceCircuits(ergastRaces);
+        if (circuitRows.length) {
+          const { error } = await supabase.from("circuits").upsert(circuitRows, {
+            onConflict: "circuit_id",
+          });
+          if (error) throw error;
+        }
+        const { error } = await supabase.from("races").upsert(races, {
+          onConflict: "race_id",
+        });
+        if (error) throw error;
+        setStatus(`Imported ${races.length} races for ${ergastSeason}.`);
+        return;
+      }
+      if (type === "race_results") {
+        const [ergastRaces, ergastResults] = await Promise.all([
+          getSeasonRaces(ergastSeason),
+          getRaceResults(ergastSeason, ergastRound),
+        ]);
+        const raceId = `${ergastSeason}-${ergastRound}`;
+        const races = mapErgastRaces(ergastRaces).filter(
+          (race) => race.race_id === raceId
+        );
+        if (races.length) {
+          const circuitRows = mapErgastRaceCircuits(ergastRaces);
+          if (circuitRows.length) {
+            const { error } = await supabase
+              .from("circuits")
+              .upsert(circuitRows, { onConflict: "circuit_id" });
+            if (error) throw error;
+          }
+          const { error } = await supabase.from("races").upsert(races, {
+            onConflict: "race_id",
+          });
+          if (error) throw error;
+        }
+        const results = mapErgastResults(
+          ergastResults,
+          ergastSeason,
+          ergastRound
+        );
+        if (!results.length) {
+          setStatus("No race results returned from Ergast.");
+          return;
+        }
+        const { error } = await supabase.from("results").upsert(results, {
+          onConflict: "result_id",
+        });
+        if (error) throw error;
+        setStatus(
+          `Imported ${results.length} results for ${ergastSeason} round ${ergastRound}.`
+        );
+        return;
+      }
+      if (type === "driver_standings") {
+        const standings = await getDriverStandings(ergastSeason);
+        const mapped = mapErgastDriverStandings(standings, ergastSeason);
+        if (!mapped.length) {
+          setStatus("No driver standings returned from Ergast.");
+          return;
+        }
+        const { error } = await supabase
+          .from("driver_standings")
+          .upsert(mapped, { onConflict: "id" });
+        if (error) throw error;
+        setStatus(`Imported driver standings for ${ergastSeason}.`);
+        return;
+      }
+      if (type === "constructor_standings") {
+        const standings = await getConstructorStandings(ergastSeason);
+        const mapped = mapErgastConstructorStandings(
+          standings,
+          ergastSeason
+        );
+        if (!mapped.length) {
+          setStatus("No constructor standings returned from Ergast.");
+          return;
+        }
+        const { error } = await supabase
+          .from("constructor_standings")
+          .upsert(mapped, { onConflict: "id" });
+        if (error) throw error;
+        setStatus(`Imported constructor standings for ${ergastSeason}.`);
+        return;
+      }
+      if (type === "pit_stops") {
+        const stops = await getPitStops(ergastSeason, ergastRound);
+        const mapped = mapErgastPitStops(stops, ergastSeason, ergastRound);
+        if (!mapped.length) {
+          setStatus("No pit stop data returned from Ergast.");
+          return;
+        }
+        const { error } = await supabase.from("pit_stops").upsert(mapped, {
+          onConflict: "id",
+        });
+        if (error) throw error;
+        setStatus(
+          `Imported ${mapped.length} pit stops for ${ergastSeason} round ${ergastRound}.`
+        );
+      }
+    } catch (error) {
+      setStatus(error.message || "Failed to import Ergast data.");
+    } finally {
+      setErgastLoading(false);
+    }
+  };
+
+  const chunkArray = (items, size) => {
+    const chunks = [];
+    for (let i = 0; i < items.length; i += size) {
+      chunks.push(items.slice(i, i + size));
+    }
+    return chunks;
+  };
+
+  const fetchExistingIds = async (table, idKey, ids) => {
+    const existing = new Set();
+    const chunks = chunkArray(ids, 200);
+    for (const chunk of chunks) {
+      const { data, error } = await supabase
+        .from(table)
+        .select(idKey)
+        .in(idKey, chunk);
+      if (error) throw error;
+      (data || []).forEach((row) => existing.add(row[idKey]));
+    }
+    return existing;
+  };
+
+  const insertNewRows = async (table, idKey, rows) => {
+    if (!rows.length) return { inserted: 0, skipped: 0 };
+    const ids = rows.map((row) => row[idKey]).filter(Boolean);
+    const existing = await fetchExistingIds(table, idKey, ids);
+    const freshRows = rows.filter(
+      (row) => row[idKey] && !existing.has(row[idKey])
+    );
+    const skipped = rows.length - freshRows.length;
+    if (!freshRows.length) return { inserted: 0, skipped };
+    const chunks = chunkArray(freshRows, 500);
+    let inserted = 0;
+    for (const chunk of chunks) {
+      const { error } = await supabase.from(table).insert(chunk);
+      if (error) throw error;
+      inserted += chunk.length;
+    }
+    return { inserted, skipped };
+  };
+
+  const handleSeasonImport = async () => {
+    if (!hasSupabase()) return;
+    const seasonYear = Number(seasonImportYear);
+    if (!seasonYear || Number.isNaN(seasonYear)) {
+      setStatus("Enter a valid season year.");
+      return;
+    }
+    seasonImportAbortRef.current = false;
+    setSeasonImportStats({});
+    setSeasonImportLoading(true);
+    setSeasonImportProgress({ label: "Fetching races", percent: 5 });
+    try {
+      const checkCancelled = () => {
+        if (seasonImportAbortRef.current) {
+          throw new Error("cancelled");
+        }
+      };
+      const updateStats = (key, inserted, skipped) => {
+        setSeasonImportStats((prev) => ({
+          ...prev,
+          [key]: {
+            inserted: (prev[key]?.inserted || 0) + inserted,
+            skipped: (prev[key]?.skipped || 0) + skipped,
+          },
+        }));
+      };
+      const ergastRaces = await getSeasonRaces(seasonYear);
+      checkCancelled();
+      const races = mapErgastRaces(ergastRaces).map((race) => ({
+        race_id: race.race_id,
+        season_year: race.season_year,
+        round: race.round,
+        race_name: race.race_name,
+        circuit_id: race.circuit_id,
+        date: race.date,
+      }));
+      const raceInsert = await insertNewRows("races", "race_id", races);
+      updateStats("races", raceInsert.inserted, raceInsert.skipped);
+
+      setSeasonImportProgress({ label: "Importing circuits", percent: 15 });
+      const allCircuits = mapErgastCircuits(await getCircuits());
+      checkCancelled();
+      const circuitInsert = await insertNewRows(
+        "circuits",
+        "circuit_id",
+        allCircuits
+      );
+      updateStats("circuits", circuitInsert.inserted, circuitInsert.skipped);
+
+      setSeasonImportProgress({ label: "Importing drivers", percent: 25 });
+      const allDrivers = mapErgastDrivers(await getDrivers());
+      checkCancelled();
+      const driverInsert = await insertNewRows(
+        "drivers",
+        "driver_id",
+        allDrivers
+      );
+      updateStats("drivers", driverInsert.inserted, driverInsert.skipped);
+
+      setSeasonImportProgress({ label: "Importing constructors", percent: 35 });
+      const allConstructors = mapErgastConstructors(await getConstructors());
+      checkCancelled();
+      const constructorInsert = await insertNewRows(
+        "constructors",
+        "constructor_id",
+        allConstructors
+      );
+      updateStats(
+        "constructors",
+        constructorInsert.inserted,
+        constructorInsert.skipped
+      );
+
+      const rounds = races.map((race) => race.round).filter(Boolean);
+      if (!rounds.length) {
+        setSeasonImportProgress({
+          label: "Importing results",
+          percent: 80,
+        });
+      } else {
+        for (let i = 0; i < rounds.length; i += 1) {
+          const round = rounds[i];
+          const percent =
+            35 + Math.round(((i + 1) / rounds.length) * 45);
+          setSeasonImportProgress({
+            label: `Importing results (Round ${round})`,
+            percent,
+          });
+          const ergastResults = await getRaceResults(seasonYear, round);
+          checkCancelled();
+          const results = mapErgastResults(ergastResults, seasonYear, round);
+          const resultsInsert = await insertNewRows(
+            "results",
+            "result_id",
+            results
+          );
+          updateStats(
+            "results",
+            resultsInsert.inserted,
+            resultsInsert.skipped
+          );
+
+          if (includeQualifying) {
+            const qualifying = await getQualifyingResults(seasonYear, round);
+            checkCancelled();
+            const qualifyingRows = mapErgastQualifyingResults(
+              qualifying,
+              seasonYear,
+              round
+            );
+            const qualifyingInsert = await insertNewRows(
+              "qualifying_results",
+              "id",
+              qualifyingRows
+            );
+            updateStats(
+              "qualifying_results",
+              qualifyingInsert.inserted,
+              qualifyingInsert.skipped
+            );
+          }
+
+          if (includeFastestLap) {
+            const fastest = await getFastestLap(seasonYear, round);
+            checkCancelled();
+            const fastestRow = mapErgastFastestLap(
+              fastest,
+              seasonYear,
+              round
+            );
+            if (fastestRow) {
+              const fastestInsert = await insertNewRows(
+                "fastest_laps",
+                "id",
+                [fastestRow]
+              );
+              updateStats(
+                "fastest_laps",
+                fastestInsert.inserted,
+                fastestInsert.skipped
+              );
+            }
+          }
+
+          if (includePitStops && seasonYear >= 2012) {
+            const stops = await getPitStops(seasonYear, round);
+            checkCancelled();
+            const stopRows = mapErgastPitStops(stops, seasonYear, round);
+            const pitInsert = await insertNewRows("pit_stops", "id", stopRows);
+            updateStats("pit_stops", pitInsert.inserted, pitInsert.skipped);
+          }
+        }
+      }
+
+      setSeasonImportProgress({ label: "Importing standings", percent: 90 });
+      const driverStandings = await getDriverStandings(seasonYear);
+      checkCancelled();
+      const driverRows = mapErgastDriverStandings(
+        driverStandings,
+        seasonYear
+      );
+      const driverStandingsInsert = await insertNewRows(
+        "driver_standings",
+        "id",
+        driverRows
+      );
+      updateStats(
+        "driver_standings",
+        driverStandingsInsert.inserted,
+        driverStandingsInsert.skipped
+      );
+
+      const constructorStandings = await getConstructorStandings(seasonYear);
+      checkCancelled();
+      const constructorRows = mapErgastConstructorStandings(
+        constructorStandings,
+        seasonYear
+      );
+      const constructorStandingsInsert = await insertNewRows(
+        "constructor_standings",
+        "id",
+        constructorRows
+      );
+      updateStats(
+        "constructor_standings",
+        constructorStandingsInsert.inserted,
+        constructorStandingsInsert.skipped
+      );
+
+      setSeasonImportProgress({ label: "Complete", percent: 100 });
+      setStatus(`Season ${seasonYear} imported successfully.`);
+    } catch (error) {
+      if (error?.message === "cancelled") {
+        setStatus("Season import cancelled.");
+        setSeasonImportProgress((prev) => ({
+          ...prev,
+          label: "Cancelled",
+        }));
+      } else {
+        setStatus("Failed to fetch season data from Ergast.");
+      }
+    } finally {
+      setSeasonImportLoading(false);
+      seasonImportAbortRef.current = false;
     }
   };
 
@@ -1216,6 +1681,191 @@ export default function Admin({ initialSection = "dashboard" }) {
                   </button>
                 </section>
               </>
+            )}
+
+            {activeSection === "ergast_import" && (
+              <section className="glass-panel rounded-3xl p-6">
+                <h2 className="font-f1bold text-xl">Ergast Import Center</h2>
+                <p className="mt-2 text-sm text-white/60">
+                  Fetch data from Ergast and store it in Supabase.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <input
+                    type="number"
+                    value={ergastSeason}
+                    onChange={(event) =>
+                      setErgastSeason(Number(event.target.value))
+                    }
+                    className="w-28 rounded-lg border border-white/10 bg-black/80 px-3 py-2 text-xs text-white"
+                    placeholder="Season"
+                  />
+                  <input
+                    type="number"
+                    value={ergastRound}
+                    onChange={(event) =>
+                      setErgastRound(Number(event.target.value))
+                    }
+                    className="w-24 rounded-lg border border-white/10 bg-black/80 px-3 py-2 text-xs text-white"
+                    placeholder="Round"
+                  />
+                  <span className="text-xs text-white/50">
+                    Season/Round used for race-level imports.
+                  </span>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    onClick={() => handleErgastImport("drivers")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Drivers
+                  </button>
+                  <button
+                    onClick={() => handleErgastImport("constructors")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Constructors
+                  </button>
+                  <button
+                    onClick={() => handleErgastImport("circuits")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Circuits
+                  </button>
+                  <button
+                    onClick={() => handleErgastImport("seasons")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Seasons
+                  </button>
+                  <button
+                    onClick={() => handleErgastImport("season_races")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Season Races
+                  </button>
+                  <button
+                    onClick={() => handleErgastImport("race_results")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Race Results
+                  </button>
+                  <button
+                    onClick={() => handleErgastImport("driver_standings")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Driver Standings
+                  </button>
+                  <button
+                    onClick={() => handleErgastImport("constructor_standings")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Constructor Standings
+                  </button>
+                  <button
+                    onClick={() => handleErgastImport("pit_stops")}
+                    disabled={ergastLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
+                  >
+                    Import Pit Stops
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {activeSection === "season_import" && (
+              <section className="glass-panel rounded-3xl p-6">
+                <h2 className="font-f1bold text-xl">Season Importer</h2>
+                <p className="mt-2 text-sm text-white/60">
+                  Import a complete season in one pass (races, results,
+                  standings, drivers, constructors, and circuits).
+                </p>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <input
+                    type="number"
+                    value={seasonImportYear}
+                    onChange={(event) =>
+                      setSeasonImportYear(Number(event.target.value))
+                    }
+                    className="w-28 rounded-lg border border-white/10 bg-black/80 px-3 py-2 text-xs text-white"
+                    placeholder="Season"
+                  />
+                  <button
+                    onClick={handleSeasonImport}
+                    disabled={seasonImportLoading}
+                    className="rounded-full bg-f1red px-4 py-2 text-xs uppercase tracking-[0.2em] disabled:opacity-60"
+                  >
+                    {seasonImportLoading
+                      ? "Importing..."
+                      : "Import Season Data"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      seasonImportAbortRef.current = true;
+                    }}
+                    disabled={!seasonImportLoading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-40"
+                  >
+                    Cancel Import
+                  </button>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-4 text-xs text-white/70">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includeQualifying}
+                      onChange={(event) => setIncludeQualifying(event.target.checked)}
+                    />
+                    Include qualifying results
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includeFastestLap}
+                      onChange={(event) => setIncludeFastestLap(event.target.checked)}
+                    />
+                    Include fastest lap
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includePitStops}
+                      onChange={(event) => setIncludePitStops(event.target.checked)}
+                    />
+                    Include pit stops (2012+)
+                  </label>
+                </div>
+                {seasonImportLoading && (
+                  <div className="mt-4 space-y-2">
+                    <div className="text-xs text-white/60">
+                      {seasonImportProgress.label}
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-f1red transition-all"
+                        style={{ width: `${seasonImportProgress.percent}%` }}
+                      />
+                    </div>
+                    <div className="grid gap-1 text-[11px] text-white/60">
+                      {Object.entries(seasonImportStats).map(
+                        ([key, value]) => (
+                          <div key={key}>
+                            {key.replace(/_/g, " ")}: {value.inserted} inserted,{" "}
+                            {value.skipped} skipped
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+              </section>
             )}
 
             {activeSection === "media" && (

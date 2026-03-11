@@ -1,7 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import StandingsTable from "../components/StandingsTable.jsx";
-import { fetchTable, hasSupabase } from "../services/supabaseClient";
+import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
+import {
+  getConstructorStandings,
+  getDriverStandings,
+  getSeasonRaces,
+} from "../services/ergastService";
+import {
+  mapErgastConstructorStandings,
+  mapErgastDriverStandings,
+  mapErgastRaceCircuits,
+  mapErgastRaces,
+} from "../services/ergastMapper";
 
 export default function SeasonDetails() {
   const { year } = useParams();
@@ -11,33 +22,132 @@ export default function SeasonDetails() {
   const [constructorStandings, setConstructorStandings] = useState([]);
 
   useEffect(() => {
-    if (!hasSupabase()) return;
+    let cancelled = false;
     const load = async () => {
-      const seasonRes = await fetchTable("seasons", {
-        filters: { year: Number(year) },
-        limit: 1,
-      });
-      setSeason(seasonRes.data[0]);
+      const seasonYear = Number(year);
+      let seasonRow = null;
+      let racesRows = [];
 
-      const racesRes = await fetchTable("races", {
-        filters: { season_year: Number(year) },
-        order: { column: "round", ascending: true },
-      });
-      setRaces(racesRes.data);
+      if (hasSupabase()) {
+        const seasonRes = await fetchTable("seasons", {
+          filters: { year: seasonYear },
+          limit: 1,
+        });
+        seasonRow = seasonRes.data[0] || null;
+        if (!cancelled && seasonRow) setSeason(seasonRow);
 
-      const driversRes = await fetchTable("driver_standings", {
-        filters: { season_year: Number(year) },
-        order: { column: "position", ascending: true },
-      });
-      setDriverStandings(driversRes.data);
+        const racesRes = await fetchTable("races", {
+          filters: { season_year: seasonYear },
+          order: { column: "round", ascending: true },
+        });
+        racesRows = racesRes.data || [];
+      }
 
-      const constructorsRes = await fetchTable("constructor_standings", {
-        filters: { season_year: Number(year) },
-        order: { column: "position", ascending: true },
-      });
-      setConstructorStandings(constructorsRes.data);
+      if (racesRows.length) {
+        if (!cancelled) setRaces(racesRows);
+      } else {
+        try {
+          const ergastRaces = await getSeasonRaces(seasonYear);
+          const mappedRaces = mapErgastRaces(ergastRaces);
+          racesRows = mappedRaces;
+          if (!cancelled) setRaces(mappedRaces);
+          if (hasSupabase() && mappedRaces.length) {
+            const circuitRows = mapErgastRaceCircuits(ergastRaces);
+            if (circuitRows.length) {
+              await supabase.from("circuits").upsert(circuitRows, {
+                onConflict: "circuit_id",
+              });
+            }
+            await supabase.from("races").upsert(mappedRaces, {
+              onConflict: "race_id",
+            });
+          }
+        } catch {
+          if (!cancelled) setRaces([]);
+        }
+      }
+
+      let driverRows = [];
+      if (hasSupabase()) {
+        const driversRes = await fetchTable("driver_standings", {
+          filters: { season_year: seasonYear },
+          order: { column: "position", ascending: true },
+        });
+        driverRows = driversRes.data || [];
+        if (driverRows.length && !cancelled) {
+          setDriverStandings(driverRows);
+        }
+      }
+
+      if (!driverRows.length) {
+        try {
+          const ergastDriverStandings = await getDriverStandings(seasonYear);
+          const mapped = mapErgastDriverStandings(
+            ergastDriverStandings,
+            seasonYear
+          );
+          if (!cancelled) setDriverStandings(mapped);
+          if (hasSupabase() && mapped.length) {
+            await supabase.from("driver_standings").upsert(mapped, {
+              onConflict: "id",
+            });
+          }
+        } catch {
+          if (!cancelled) setDriverStandings([]);
+        }
+      }
+
+      let constructorRows = [];
+      if (hasSupabase()) {
+        const constructorsRes = await fetchTable("constructor_standings", {
+          filters: { season_year: seasonYear },
+          order: { column: "position", ascending: true },
+        });
+        constructorRows = constructorsRes.data || [];
+        if (constructorRows.length && !cancelled) {
+          setConstructorStandings(constructorRows);
+        }
+      }
+
+      if (!constructorRows.length) {
+        try {
+          const ergastConstructorStandings =
+            await getConstructorStandings(seasonYear);
+          const mapped = mapErgastConstructorStandings(
+            ergastConstructorStandings,
+            seasonYear
+          );
+          if (!cancelled) setConstructorStandings(mapped);
+          if (hasSupabase() && mapped.length) {
+            await supabase.from("constructor_standings").upsert(mapped, {
+              onConflict: "id",
+            });
+          }
+        } catch {
+          if (!cancelled) setConstructorStandings([]);
+        }
+      }
+
+      if (!seasonRow) {
+        const fallbackSeason = {
+          season_id: String(seasonYear),
+          year: seasonYear,
+          champion_driver_id: null,
+          champion_constructor_id: null,
+          total_races: racesRows.length || null,
+        };
+        if (!cancelled) setSeason(fallbackSeason);
+        if (hasSupabase() && racesRows.length) {
+          await supabase.from("seasons").upsert([fallbackSeason], {
+            onConflict: "season_id",
+          });
+        }
+      }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [year]);
 
   return (

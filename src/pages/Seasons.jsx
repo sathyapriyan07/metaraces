@@ -1,26 +1,57 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Pagination from "../components/Pagination.jsx";
-import { fetchTable, hasSupabase } from "../services/supabaseClient";
+import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
+import { getSeasons } from "../services/ergastService";
+import { mapErgastSeasons } from "../services/ergastMapper";
 
 export default function Seasons() {
   const currentYear = new Date().getFullYear();
   const [seasons, setSeasons] = useState([]);
   const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
   const perPage = 12;
 
   useEffect(() => {
-    if (!hasSupabase()) return;
+    let cancelled = false;
     const load = async () => {
-      const res = await fetchTable("seasons", {
-        order: { column: "year", ascending: false },
-      });
-      if (res.data.length) setSeasons(res.data);
+      setLoading(true);
+      let dbSeasons = [];
+      if (hasSupabase()) {
+        const res = await fetchTable("seasons", {
+          order: { column: "year", ascending: false },
+        });
+        dbSeasons = res.data;
+      }
+      if (dbSeasons.length) {
+        if (!cancelled) {
+          setSeasons(dbSeasons);
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const ergastSeasons = await getSeasons();
+        const mapped = mapErgastSeasons(ergastSeasons);
+        if (!cancelled) setSeasons(mapped);
+        if (hasSupabase() && mapped.length) {
+          await supabase.from("seasons").upsert(mapped, {
+            onConflict: "season_id",
+          });
+        }
+      } catch {
+        if (!cancelled) setSeasons([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const totalPages = Math.ceil(seasons.length / perPage);
+  const totalPages = Math.ceil(seasons.length / perPage) || 1;
   const visible = useMemo(
     () => seasons.slice((page - 1) * perPage, page * perPage),
     [page, seasons]
@@ -63,7 +94,7 @@ export default function Seasons() {
           ))
         ) : (
           <div className="glass-panel rounded-2xl p-6 text-white/60">
-            No seasons imported yet.
+            {loading ? "Loading seasons..." : "No data available."}
           </div>
         )}
       </div>

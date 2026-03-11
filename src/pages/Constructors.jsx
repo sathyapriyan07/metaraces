@@ -1,23 +1,54 @@
 import { useEffect, useMemo, useState } from "react";
 import Pagination from "../components/Pagination.jsx";
-import { fetchTable, hasSupabase } from "../services/supabaseClient";
+import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
+import { getConstructors } from "../services/ergastService";
+import { mapErgastConstructors } from "../services/ergastMapper";
 import { Link } from "react-router-dom";
 
 export default function Constructors() {
   const [teams, setTeams] = useState([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
   const perPage = 12;
 
   useEffect(() => {
-    if (!hasSupabase()) return;
+    let cancelled = false;
     const load = async () => {
-      const res = await fetchTable("constructors", {
-        order: { column: "name", ascending: true },
-      });
-      if (res.data.length) setTeams(res.data);
+      setLoading(true);
+      let dbTeams = [];
+      if (hasSupabase()) {
+        const res = await fetchTable("constructors", {
+          order: { column: "name", ascending: true },
+        });
+        dbTeams = res.data;
+      }
+      if (dbTeams.length) {
+        if (!cancelled) {
+          setTeams(dbTeams);
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const ergastTeams = await getConstructors();
+        const mapped = mapErgastConstructors(ergastTeams);
+        if (!cancelled) setTeams(mapped);
+        if (hasSupabase() && mapped.length) {
+          await supabase.from("constructors").upsert(mapped, {
+            onConflict: "constructor_id",
+          });
+        }
+      } catch {
+        if (!cancelled) setTeams([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -95,7 +126,7 @@ export default function Constructors() {
           ))
         ) : (
           <div className="glass-panel rounded-2xl p-6 text-white/60">
-            No constructors imported yet.
+            {loading ? "Loading constructors..." : "No data available."}
           </div>
         )}
       </div>

@@ -1,23 +1,54 @@
 import { useEffect, useMemo, useState } from "react";
 import DriverCard from "../components/DriverCard.jsx";
 import Pagination from "../components/Pagination.jsx";
-import { fetchTable, hasSupabase } from "../services/supabaseClient";
+import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
+import { getDrivers } from "../services/ergastService";
+import { mapErgastDrivers } from "../services/ergastMapper";
 
 export default function Drivers() {
   const [drivers, setDrivers] = useState([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
   const perPage = 12;
 
   useEffect(() => {
-    if (!hasSupabase()) return;
+    let cancelled = false;
     const load = async () => {
-      const res = await fetchTable("drivers", {
-        order: { column: "last_name", ascending: true },
-      });
-      if (res.data.length) setDrivers(res.data);
+      setLoading(true);
+      let dbDrivers = [];
+      if (hasSupabase()) {
+        const res = await fetchTable("drivers", {
+          order: { column: "last_name", ascending: true },
+        });
+        dbDrivers = res.data;
+      }
+      if (dbDrivers.length) {
+        if (!cancelled) {
+          setDrivers(dbDrivers);
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const ergastDrivers = await getDrivers();
+        const mapped = mapErgastDrivers(ergastDrivers);
+        if (!cancelled) setDrivers(mapped);
+        if (hasSupabase() && mapped.length) {
+          await supabase.from("drivers").upsert(mapped, {
+            onConflict: "driver_id",
+          });
+        }
+      } catch {
+        if (!cancelled) setDrivers([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -60,7 +91,7 @@ export default function Drivers() {
           ))
         ) : (
           <div className="glass-panel rounded-2xl p-6 text-white/60">
-            No drivers imported yet.
+            {loading ? "Loading drivers..." : "No data available."}
           </div>
         )}
       </div>

@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { fetchTable, hasSupabase } from "../services/supabaseClient";
+import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
+import { getRaceResults, getSeasonRaces } from "../services/ergastService";
+import {
+  mapErgastRaceCircuits,
+  mapErgastRaces,
+  mapErgastResults,
+  raceIdFromSeasonRound,
+} from "../services/ergastMapper";
 
 export default function RaceDetails() {
   const { raceId } = useParams();
@@ -8,21 +15,80 @@ export default function RaceDetails() {
   const [results, setResults] = useState([]);
 
   useEffect(() => {
-    if (!hasSupabase()) return;
+    let cancelled = false;
     const load = async () => {
-      const raceRes = await fetchTable("races", {
-        filters: { race_id: raceId },
-        limit: 1,
-      });
-      setRace(raceRes.data[0]);
+      let raceRow = null;
+      let resultsRows = [];
 
-      const resultsRes = await fetchTable("results", {
-        filters: { race_id: raceId },
-        order: { column: "position", ascending: true },
-      });
-      setResults(resultsRes.data);
+      if (hasSupabase()) {
+        const raceRes = await fetchTable("races", {
+          filters: { race_id: raceId },
+          limit: 1,
+        });
+        raceRow = raceRes.data[0] || null;
+        if (!cancelled && raceRow) setRace(raceRow);
+
+        const resultsRes = await fetchTable("results", {
+          filters: { race_id: raceId },
+          order: { column: "position", ascending: true },
+        });
+        resultsRows = resultsRes.data || [];
+        if (resultsRows.length && !cancelled) setResults(resultsRows);
+      }
+
+      if (raceRow && resultsRows.length) return;
+
+      const match = raceId.match(/^(\d{4})-(\d{1,2})$/);
+      if (!match) {
+        if (!raceRow && !cancelled) setRace(null);
+        if (!resultsRows.length && !cancelled) setResults([]);
+        return;
+      }
+      const [, season, round] = match;
+
+      try {
+        const [ergastRaces, ergastResults] = await Promise.all([
+          getSeasonRaces(season),
+          getRaceResults(season, round),
+        ]);
+        const mappedRaces = mapErgastRaces(ergastRaces);
+        const targetRaceId = raceIdFromSeasonRound(season, round);
+        const mappedRace =
+          mappedRaces.find((item) => item.race_id === targetRaceId) || null;
+        const mappedResults = mapErgastResults(
+          ergastResults,
+          season,
+          round
+        );
+        if (!cancelled) {
+          setRace(mappedRace || raceRow);
+          setResults(mappedResults);
+        }
+        if (hasSupabase() && mappedRace) {
+          const circuitRows = mapErgastRaceCircuits(ergastRaces);
+          if (circuitRows.length) {
+            await supabase.from("circuits").upsert(circuitRows, {
+              onConflict: "circuit_id",
+            });
+          }
+          await supabase.from("races").upsert([mappedRace], {
+            onConflict: "race_id",
+          });
+        }
+        if (hasSupabase() && mappedResults.length) {
+          await supabase.from("results").upsert(mappedResults, {
+            onConflict: "result_id",
+          });
+        }
+      } catch {
+        if (!cancelled && !raceRow) setRace(null);
+        if (!cancelled && !resultsRows.length) setResults([]);
+      }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [raceId]);
 
   if (!race) {

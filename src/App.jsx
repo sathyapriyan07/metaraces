@@ -30,6 +30,7 @@ export default function App() {
         <Route path="/races" element={<Races />} />
         <Route path="/races/:raceId" element={<RaceDetails />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/import-season" element={<Admin initialSection="season_import" />} />
         <Route path="/admin/driver-assignments" element={<DriverAssignments />} />
       </Route>
     </Routes>
