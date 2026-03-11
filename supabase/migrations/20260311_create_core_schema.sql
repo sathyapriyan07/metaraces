@@ -101,7 +101,7 @@ create table if not exists public.pitstops (
   time text,
   duration text,
   created_at timestamptz default now(),
-  unique (race_id, driver_id, stop)
+  unique (race_id, driver_id, lap, stop)
 );
 
 create table if not exists public.driver_constructor_history (

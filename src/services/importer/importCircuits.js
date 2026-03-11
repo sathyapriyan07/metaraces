@@ -1,18 +1,12 @@
-import { ergastUrl, fetchJson, upsertRows } from "./importUtils";
-
-const toNumber = (value) => {
-  if (value === undefined || value === null || value === "") return null;
-  const parsed = Number(value);
-  return Number.isNaN(parsed) ? null : parsed;
-};
+import { fetchAPI, toNumber, upsertRows } from "../f1ApiClient";
 
 export async function importCircuits() {
-  const url = ergastUrl("/circuits", { limit: 1000 });
-  const data = await fetchJson(url);
+  const data = await fetchAPI("circuits.json?limit=1000");
   const circuits = data?.MRData?.CircuitTable?.Circuits || [];
   if (!circuits.length) {
     throw new Error("No data returned");
   }
+
   const rows = circuits.map((circuit) => ({
     circuit_id: circuit.circuitId,
     name: circuit.circuitName,
@@ -24,6 +18,8 @@ export async function importCircuits() {
     map_url: null,
     image_url: null,
   }));
-  await upsertRows("circuits", rows, "circuit_id");
-  return rows.length;
+
+  const inserted = await upsertRows("circuits", rows, "circuit_id");
+  return { fetched: circuits.length, inserted };
 }
+

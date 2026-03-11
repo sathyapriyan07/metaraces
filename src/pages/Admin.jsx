@@ -2,18 +2,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase, hasSupabase } from "../services/supabaseClient";
 import { importExcelToTable } from "../services/excelImporter";
-import { importDrivers as importDriversService } from "../services/import/importDrivers";
-import { importConstructors as importConstructorsService } from "../services/import/importConstructors";
-import { importCircuits as importCircuitsService } from "../services/import/importCircuits";
-import { importSeasons as importSeasonsService } from "../services/import/importSeasons";
-import { importRaces as importRacesService } from "../services/import/importRaces";
-import { importResults as importResultsService } from "../services/import/importResults";
-import { importPitStops as importPitStopsService } from "../services/import/importPitStops";
+import { importResults as importResultsService } from "../services/importer/importResults";
 import {
   importConstructorStandings as importConstructorStandingsService,
   importDriverStandings as importDriverStandingsService,
-} from "../services/import/importStandings";
-import { importSeason } from "../services/import/importSeason";
+} from "../services/importer/importStandings";
+import { importSeason } from "../services/importer/importSeason";
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTable from "../components/AdminTable.jsx";
 import AdminModal from "../components/AdminModal.jsx";
@@ -43,7 +37,6 @@ const adminSections = [
   { id: "standings", label: "Standings" },
   { id: "driver_assignments", label: "Driver Assignments" },
   { id: "import", label: "Import Center" },
-  { id: "ergast_import", label: "Ergast Import Center" },
   { id: "season_import", label: "Season Importer" },
   { id: "admin_tools", label: "Admin Tools" },
   { id: "media", label: "Media Manager" },
@@ -295,9 +288,6 @@ export default function Admin({ initialSection = "dashboard" }) {
   const [activeSection, setActiveSection] = useState(initialSection);
   const [tableName, setTableName] = useState("drivers");
   const [file, setFile] = useState(null);
-  const [ergastSeason, setErgastSeason] = useState(new Date().getFullYear());
-  const [ergastRound, setErgastRound] = useState(1);
-  const [ergastImportState, setErgastImportState] = useState({});
   const [seasonImportYear, setSeasonImportYear] = useState(
     new Date().getFullYear()
   );
@@ -359,7 +349,6 @@ export default function Admin({ initialSection = "dashboard" }) {
     if (activeSection === "driver_assignments")
       return "driver_constructor_history";
     if (activeSection === "import") return null;
-    if (activeSection === "ergast_import") return null;
     if (activeSection === "season_import") return null;
     if (activeSection === "admin_tools") return null;
     if (activeSection === "media") return null;
@@ -405,13 +394,6 @@ export default function Admin({ initialSection = "dashboard" }) {
 
   // Legacy API data import removed in favor of unified import services.
 
-  const setErgastState = (key, patch) => {
-    setErgastImportState((prev) => ({
-      ...prev,
-      [key]: { ...(prev[key] || {}), ...patch },
-    }));
-  };
-
   const validateSeason = (value) => {
     const year = Number(value);
     const currentYear = new Date().getFullYear();
@@ -420,366 +402,6 @@ export default function Admin({ initialSection = "dashboard" }) {
       return `Season must be between 1950 and ${currentYear}.`;
     }
     return null;
-  };
-
-  const validateRound = (value) => {
-    const round = Number(value);
-    if (!round || Number.isNaN(round)) return "Round must be a number.";
-    if (round <= 0) return "Round must be greater than 0.";
-    return null;
-  };
-
-  const handleErgastError = (error, key) => {
-    if (error?.message === "API timeout") {
-      setErgastState(key, { error: "API unreachable (timeout)." });
-      return;
-    }
-    if (error?.message === "API request failed") {
-      setErgastState(key, { error: "API unreachable." });
-      return;
-    }
-    if (error?.message === "No data returned") {
-      setErgastState(key, { error: "No data returned." });
-      return;
-    }
-    if (error?.message === "Invalid API response") {
-      setErgastState(key, { error: "Invalid API response." });
-      return;
-    }
-    if (
-      error?.message?.toLowerCase().includes("network") ||
-      error?.message?.toLowerCase().includes("failed to fetch")
-    ) {
-      setErgastState(key, { error: "Network error." });
-      return;
-    }
-    if (error?.message?.toLowerCase().includes("supabase")) {
-      setErgastState(key, { error: "Supabase insert error." });
-      return;
-    }
-    setErgastState(key, { error: "API unreachable." });
-  };
-
-  const importDrivers = async () => {
-    const key = "drivers";
-    if (!hasSupabase()) return;
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: ["Importing drivers..."],
-      status: "",
-    });
-    try {
-      const count = await importDriversService();
-      setErgastState(key, {
-        log: ["Importing drivers...", `Processing ${count} drivers...`],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          "Importing drivers...",
-          `Processing ${count} drivers...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
-  };
-
-  const importConstructors = async () => {
-    const key = "constructors";
-    if (!hasSupabase()) return;
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: ["Importing constructors..."],
-      status: "",
-    });
-    try {
-      const count = await importConstructorsService();
-      setErgastState(key, {
-        log: [
-          "Importing constructors...",
-          `Processing ${count} constructors...`,
-        ],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          "Importing constructors...",
-          `Processing ${count} constructors...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
-  };
-
-  const importCircuits = async () => {
-    const key = "circuits";
-    if (!hasSupabase()) return;
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: ["Importing circuits..."],
-      status: "",
-    });
-    try {
-      const count = await importCircuitsService();
-      setErgastState(key, {
-        log: [
-          "Importing circuits...",
-          `Processing ${count} circuits...`,
-        ],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          "Importing circuits...",
-          `Processing ${count} circuits...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
-  };
-
-  const importSeasons = async () => {
-    const key = "seasons";
-    if (!hasSupabase()) return;
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: ["Importing seasons..."],
-      status: "",
-    });
-    try {
-      const count = await importSeasonsService();
-      setErgastState(key, {
-        log: ["Importing seasons...", `Processing ${count} seasons...`],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          "Importing seasons...",
-          `Processing ${count} seasons...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
-  };
-
-  const importSeasonRaces = async () => {
-    const key = "season_races";
-    if (!hasSupabase()) return;
-    const seasonError = validateSeason(ergastSeason);
-    if (seasonError) {
-      setErgastState(key, { error: seasonError });
-      return;
-    }
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: [`Importing races for ${ergastSeason}...`],
-      status: "",
-    });
-    try {
-      const count = await importRacesService(ergastSeason);
-      setErgastState(key, {
-        log: [
-          `Importing races for ${ergastSeason}...`,
-          `Processing ${count} races...`,
-        ],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          `Importing races for ${ergastSeason}...`,
-          `Processing ${count} races...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
-  };
-
-  const importRaceResults = async () => {
-    const key = "race_results";
-    if (!hasSupabase()) return;
-    const seasonError = validateSeason(ergastSeason);
-    const roundError = validateRound(ergastRound);
-    if (seasonError || roundError) {
-      setErgastState(key, { error: seasonError || roundError });
-      return;
-    }
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: [
-        `Importing results for ${ergastSeason} round ${ergastRound}...`,
-      ],
-      status: "",
-    });
-    try {
-      const count = await importResultsService(ergastSeason, ergastRound);
-      setErgastState(key, {
-        log: [
-          `Importing results for ${ergastSeason} round ${ergastRound}...`,
-          `Processing ${count} results...`,
-        ],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          `Importing results for ${ergastSeason} round ${ergastRound}...`,
-          `Processing ${count} results...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
-  };
-
-  const importDriverStandings = async () => {
-    const key = "driver_standings";
-    if (!hasSupabase()) return;
-    const seasonError = validateSeason(ergastSeason);
-    if (seasonError) {
-      setErgastState(key, { error: seasonError });
-      return;
-    }
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: [`Importing driver standings for ${ergastSeason}...`],
-      status: "",
-    });
-    try {
-      const count = await importDriverStandingsService(ergastSeason);
-      setErgastState(key, {
-        log: [
-          `Importing driver standings for ${ergastSeason}...`,
-          `Processing ${count} standings...`,
-        ],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          `Importing driver standings for ${ergastSeason}...`,
-          `Processing ${count} standings...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
-  };
-
-  const importConstructorStandings = async () => {
-    const key = "constructor_standings";
-    if (!hasSupabase()) return;
-    const seasonError = validateSeason(ergastSeason);
-    if (seasonError) {
-      setErgastState(key, { error: seasonError });
-      return;
-    }
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: [`Importing constructor standings for ${ergastSeason}...`],
-      status: "",
-    });
-    try {
-      const count = await importConstructorStandingsService(ergastSeason);
-      setErgastState(key, {
-        log: [
-          `Importing constructor standings for ${ergastSeason}...`,
-          `Processing ${count} standings...`,
-        ],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          `Importing constructor standings for ${ergastSeason}...`,
-          `Processing ${count} standings...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
-  };
-
-  const importPitStops = async () => {
-    const key = "pit_stops";
-    if (!hasSupabase()) return;
-    const seasonError = validateSeason(ergastSeason);
-    const roundError = validateRound(ergastRound);
-    if (seasonError || roundError) {
-      setErgastState(key, { error: seasonError || roundError });
-      return;
-    }
-    setErgastState(key, {
-      loading: true,
-      error: "",
-      log: [
-        `Importing pit stops for ${ergastSeason} round ${ergastRound}...`,
-      ],
-      status: "",
-    });
-    try {
-      const count = await importPitStopsService(ergastSeason, ergastRound);
-      setErgastState(key, {
-        log: [
-          `Importing pit stops for ${ergastSeason} round ${ergastRound}...`,
-          `Processing ${count} pit stops...`,
-        ],
-      });
-      setErgastState(key, {
-        status: "Imported successfully.",
-        log: [
-          `Importing pit stops for ${ergastSeason} round ${ergastRound}...`,
-          `Processing ${count} pit stops...`,
-          "Saving to database...",
-          "Import completed.",
-        ],
-      });
-    } catch (error) {
-      handleErgastError(error, key);
-    } finally {
-      setErgastState(key, { loading: false });
-    }
   };
 
   const handleSeasonImport = async () => {
@@ -810,6 +432,7 @@ export default function Admin({ initialSection = "dashboard" }) {
           setSeasonImportProgress({ label: stage, percent });
         },
         onLog: handleLog,
+        shouldAbort: () => seasonImportAbortRef.current,
       });
       setSeasonImportProgress({ label: "Complete", percent: 100 });
       setStatus(`Season ${seasonYear} imported successfully.`);
@@ -847,11 +470,18 @@ export default function Admin({ initialSection = "dashboard" }) {
     try {
       for (let year = 1950; year <= currentYear; year += 1) {
         appendToolsLog(`Importing season ${year}...`);
-        await importSeason(year, {
-          includeQualifying: true,
-          includePitStops: year >= 2012,
-          onLog: appendToolsLog,
-        });
+        try {
+          await importSeason(year, {
+            includeQualifying: true,
+            includePitStops: year >= 2012,
+            onLog: appendToolsLog,
+          });
+        } catch (error) {
+          appendToolsLog(
+            `Season ${year} failed (${error?.message || "unknown error"}).`
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
       appendToolsLog("All seasons imported.");
     } catch (error) {
@@ -914,8 +544,14 @@ export default function Admin({ initialSection = "dashboard" }) {
       const years = (seasons || []).map((row) => row.year);
       for (const year of years) {
         appendToolsLog(`Rebuilding standings for ${year}...`);
-        await importDriverStandingsService(year);
-        await importConstructorStandingsService(year);
+        try {
+          await importDriverStandingsService(year);
+          await importConstructorStandingsService(year);
+        } catch (error) {
+          appendToolsLog(
+            `Standings ${year} failed (${error?.message || "unknown error"}).`
+          );
+        }
       }
       appendToolsLog("Standings rebuild complete.");
     } catch (error) {
@@ -941,11 +577,17 @@ export default function Admin({ initialSection = "dashboard" }) {
           .eq("season_year", year);
         if (!raceCount) {
           appendToolsLog(`Missing races for ${year}. Importing season...`);
-          await importSeason(year, {
-            includeQualifying: true,
-            includePitStops: year >= 2012,
-            onLog: appendToolsLog,
-          });
+          try {
+            await importSeason(year, {
+              includeQualifying: true,
+              includePitStops: year >= 2012,
+              onLog: appendToolsLog,
+            });
+          } catch (error) {
+            appendToolsLog(
+              `Season ${year} import failed (${error?.message || "unknown error"}).`
+            );
+          }
           continue;
         }
 
@@ -971,7 +613,13 @@ export default function Admin({ initialSection = "dashboard" }) {
             );
             const round = Number(missing.race_id.split("-")[1]);
             if (!Number.isNaN(round)) {
-              await importResultsService(year, round);
+              try {
+                await importResultsService(year, round);
+              } catch (error) {
+                appendToolsLog(
+                  `Results ${year} round ${round} failed (${error?.message || "unknown error"}).`
+                );
+              }
             }
           }
         }
@@ -982,7 +630,13 @@ export default function Admin({ initialSection = "dashboard" }) {
           .eq("season_year", year);
         if (!driverStandingsCount) {
           appendToolsLog(`Missing driver standings for ${year}. Importing...`);
-          await importDriverStandingsService(year);
+          try {
+            await importDriverStandingsService(year);
+          } catch (error) {
+            appendToolsLog(
+              `Driver standings ${year} failed (${error?.message || "unknown error"}).`
+            );
+          }
         }
 
         const { count: constructorStandingsCount } = await supabase
@@ -993,7 +647,13 @@ export default function Admin({ initialSection = "dashboard" }) {
           appendToolsLog(
             `Missing constructor standings for ${year}. Importing...`
           );
-          await importConstructorStandingsService(year);
+          try {
+            await importConstructorStandingsService(year);
+          } catch (error) {
+            appendToolsLog(
+              `Constructor standings ${year} failed (${error?.message || "unknown error"}).`
+            );
+          }
         }
       }
       appendToolsLog("Resync complete.");
@@ -1673,150 +1333,6 @@ export default function Admin({ initialSection = "dashboard" }) {
                   </button>
                 </section>
               </>
-            )}
-
-            {activeSection === "ergast_import" && (
-              <section className="glass-panel rounded-3xl p-6">
-                <h2 className="font-f1bold text-xl">Ergast Import Center</h2>
-                <p className="mt-2 text-sm text-white/60">
-                  Fetch data from Ergast and store it in Supabase.
-                </p>
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <input
-                    type="number"
-                    value={ergastSeason}
-                    onChange={(event) =>
-                      setErgastSeason(Number(event.target.value))
-                    }
-                    className="w-28 rounded-lg border border-white/10 bg-black/80 px-3 py-2 text-xs text-white"
-                    placeholder="Season"
-                  />
-                  <input
-                    type="number"
-                    value={ergastRound}
-                    onChange={(event) =>
-                      setErgastRound(Number(event.target.value))
-                    }
-                    className="w-24 rounded-lg border border-white/10 bg-black/80 px-3 py-2 text-xs text-white"
-                    placeholder="Round"
-                  />
-                  <span className="text-xs text-white/50">
-                    Season/Round used for race-level imports.
-                  </span>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <button
-                    onClick={importDrivers}
-                    disabled={ergastImportState.drivers?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.drivers?.loading
-                      ? "Loading..."
-                      : "Import Drivers"}
-                  </button>
-                  <button
-                    onClick={importConstructors}
-                    disabled={ergastImportState.constructors?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.constructors?.loading
-                      ? "Loading..."
-                      : "Import Constructors"}
-                  </button>
-                  <button
-                    onClick={importCircuits}
-                    disabled={ergastImportState.circuits?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.circuits?.loading
-                      ? "Loading..."
-                      : "Import Circuits"}
-                  </button>
-                  <button
-                    onClick={importSeasons}
-                    disabled={ergastImportState.seasons?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.seasons?.loading
-                      ? "Loading..."
-                      : "Import Seasons"}
-                  </button>
-                  <button
-                    onClick={importSeasonRaces}
-                    disabled={ergastImportState.season_races?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.season_races?.loading
-                      ? "Loading..."
-                      : "Import Season Races"}
-                  </button>
-                  <button
-                    onClick={importRaceResults}
-                    disabled={ergastImportState.race_results?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.race_results?.loading
-                      ? "Loading..."
-                      : "Import Race Results"}
-                  </button>
-                  <button
-                    onClick={importDriverStandings}
-                    disabled={ergastImportState.driver_standings?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.driver_standings?.loading
-                      ? "Loading..."
-                      : "Import Driver Standings"}
-                  </button>
-                  <button
-                    onClick={importConstructorStandings}
-                    disabled={ergastImportState.constructor_standings?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.constructor_standings?.loading
-                      ? "Loading..."
-                      : "Import Constructor Standings"}
-                  </button>
-                  <button
-                    onClick={importPitStops}
-                    disabled={ergastImportState.pit_stops?.loading}
-                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
-                  >
-                    {ergastImportState.pit_stops?.loading
-                      ? "Loading..."
-                      : "Import Pit Stops"}
-                  </button>
-                </div>
-                <div className="mt-4 grid gap-3 text-xs text-white/60">
-                  {Object.entries(ergastImportState).map(([key, state]) => (
-                    <div
-                      key={key}
-                      className="rounded-2xl border border-white/10 bg-black/60 p-3"
-                    >
-                      <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">
-                        {key.replace(/_/g, " ")}
-                      </div>
-                      {state?.status && (
-                        <div className="mt-2 text-white/80">
-                          {state.status}
-                        </div>
-                      )}
-                      {state?.error && (
-                        <div className="mt-2 text-rose-200">
-                          {state.error}
-                        </div>
-                      )}
-                      {state?.log?.length ? (
-                        <div className="mt-2 grid gap-1 text-white/60">
-                          {state.log.map((line, index) => (
-                            <div key={`${key}-${index}`}>{line}</div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </section>
             )}
 
             {activeSection === "season_import" && (
