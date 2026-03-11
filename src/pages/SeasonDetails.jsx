@@ -2,17 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import StandingsTable from "../components/StandingsTable.jsx";
 import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
-import {
-  getConstructorStandings,
-  getDriverStandings,
-  getSeasonRaces,
-} from "../services/ergastService";
-import {
-  mapErgastConstructorStandings,
-  mapErgastDriverStandings,
-  mapErgastRaceCircuits,
-  mapErgastRaces,
-} from "../services/ergastMapper";
 
 export default function SeasonDetails() {
   const { year } = useParams();
@@ -22,132 +11,37 @@ export default function SeasonDetails() {
   const [constructorStandings, setConstructorStandings] = useState([]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!hasSupabase()) return;
     const load = async () => {
       const seasonYear = Number(year);
-      let seasonRow = null;
-      let racesRows = [];
+      const seasonRes = await fetchTable("seasons", {
+        filters: { year: seasonYear },
+        limit: 1,
+      });
+      setSeason(seasonRes.data[0] || null);
 
-      if (hasSupabase()) {
-        const seasonRes = await fetchTable("seasons", {
-          filters: { year: seasonYear },
-          limit: 1,
-        });
-        seasonRow = seasonRes.data[0] || null;
-        if (!cancelled && seasonRow) setSeason(seasonRow);
+      const { data: raceRows } = await supabase
+        .from("races")
+        .select("race_id, round, name, date, circuit:circuits(name,circuit_id)")
+        .eq("season_year", seasonYear)
+        .order("round", { ascending: true });
+      setRaces(raceRows || []);
 
-        const racesRes = await fetchTable("races", {
-          filters: { season_year: seasonYear },
-          order: { column: "round", ascending: true },
-        });
-        racesRows = racesRes.data || [];
-      }
+      const { data: driverRows } = await supabase
+        .from("driver_standings")
+        .select("position, points, wins, driver:drivers(given_name,family_name,driver_id)")
+        .eq("season_year", seasonYear)
+        .order("position", { ascending: true });
+      setDriverStandings(driverRows || []);
 
-      if (racesRows.length) {
-        if (!cancelled) setRaces(racesRows);
-      } else {
-        try {
-          const ergastRaces = await getSeasonRaces(seasonYear);
-          const mappedRaces = mapErgastRaces(ergastRaces);
-          racesRows = mappedRaces;
-          if (!cancelled) setRaces(mappedRaces);
-          if (hasSupabase() && mappedRaces.length) {
-            const circuitRows = mapErgastRaceCircuits(ergastRaces);
-            if (circuitRows.length) {
-              await supabase.from("circuits").upsert(circuitRows, {
-                onConflict: "circuit_id",
-              });
-            }
-            await supabase.from("races").upsert(mappedRaces, {
-              onConflict: "race_id",
-            });
-          }
-        } catch {
-          if (!cancelled) setRaces([]);
-        }
-      }
-
-      let driverRows = [];
-      if (hasSupabase()) {
-        const driversRes = await fetchTable("driver_standings", {
-          filters: { season_year: seasonYear },
-          order: { column: "position", ascending: true },
-        });
-        driverRows = driversRes.data || [];
-        if (driverRows.length && !cancelled) {
-          setDriverStandings(driverRows);
-        }
-      }
-
-      if (!driverRows.length) {
-        try {
-          const ergastDriverStandings = await getDriverStandings(seasonYear);
-          const mapped = mapErgastDriverStandings(
-            ergastDriverStandings,
-            seasonYear
-          );
-          if (!cancelled) setDriverStandings(mapped);
-          if (hasSupabase() && mapped.length) {
-            await supabase.from("driver_standings").upsert(mapped, {
-              onConflict: "id",
-            });
-          }
-        } catch {
-          if (!cancelled) setDriverStandings([]);
-        }
-      }
-
-      let constructorRows = [];
-      if (hasSupabase()) {
-        const constructorsRes = await fetchTable("constructor_standings", {
-          filters: { season_year: seasonYear },
-          order: { column: "position", ascending: true },
-        });
-        constructorRows = constructorsRes.data || [];
-        if (constructorRows.length && !cancelled) {
-          setConstructorStandings(constructorRows);
-        }
-      }
-
-      if (!constructorRows.length) {
-        try {
-          const ergastConstructorStandings =
-            await getConstructorStandings(seasonYear);
-          const mapped = mapErgastConstructorStandings(
-            ergastConstructorStandings,
-            seasonYear
-          );
-          if (!cancelled) setConstructorStandings(mapped);
-          if (hasSupabase() && mapped.length) {
-            await supabase.from("constructor_standings").upsert(mapped, {
-              onConflict: "id",
-            });
-          }
-        } catch {
-          if (!cancelled) setConstructorStandings([]);
-        }
-      }
-
-      if (!seasonRow) {
-        const fallbackSeason = {
-          season_id: String(seasonYear),
-          year: seasonYear,
-          champion_driver_id: null,
-          champion_constructor_id: null,
-          total_races: racesRows.length || null,
-        };
-        if (!cancelled) setSeason(fallbackSeason);
-        if (hasSupabase() && racesRows.length) {
-          await supabase.from("seasons").upsert([fallbackSeason], {
-            onConflict: "season_id",
-          });
-        }
-      }
+      const { data: constructorRows } = await supabase
+        .from("constructor_standings")
+        .select("position, points, wins, constructor:constructors(name,constructor_id)")
+        .eq("season_year", seasonYear)
+        .order("position", { ascending: true });
+      setConstructorStandings(constructorRows || []);
     };
     load();
-    return () => {
-      cancelled = true;
-    };
   }, [year]);
 
   return (
@@ -173,7 +67,7 @@ export default function SeasonDetails() {
             Champion Driver
           </div>
           <div className="mt-3 font-display text-xl">
-            {season?.champion_driver_id || "TBD"}
+            {"--"}
           </div>
         </div>
         <div className="glass-panel rounded-2xl p-4">
@@ -181,7 +75,7 @@ export default function SeasonDetails() {
             Champion Constructor
           </div>
           <div className="mt-3 font-display text-xl">
-            {season?.champion_constructor_id || "TBD"}
+            {"--"}
           </div>
         </div>
         <div className="glass-panel rounded-2xl p-4">
@@ -189,7 +83,7 @@ export default function SeasonDetails() {
             Total Races
           </div>
           <div className="mt-3 font-display text-xl">
-            {season?.total_races || races.length || "--"}
+            {races.length || "--"}
           </div>
         </div>
       </section>
@@ -210,8 +104,10 @@ export default function SeasonDetails() {
               {races.map((race) => (
                 <tr key={race.race_id} className="border-t border-white/5">
                   <td className="py-2 pr-3">{race.round}</td>
-                  <td className="py-2 pr-3">{race.race_name}</td>
-                  <td className="py-2 pr-3">{race.circuit_id}</td>
+                  <td className="py-2 pr-3">{race.name}</td>
+                  <td className="py-2 pr-3">
+                    {race.circuit?.name || race.circuit?.circuit_id || "--"}
+                  </td>
                   <td className="py-2 pr-3">{race.date}</td>
                 </tr>
               ))}

@@ -1,54 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Pagination from "../components/Pagination.jsx";
-import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
-import { getSeasons } from "../services/ergastService";
-import { mapErgastSeasons } from "../services/ergastMapper";
+import { fetchTable, hasSupabase } from "../services/supabaseClient";
 
 export default function Seasons() {
   const currentYear = new Date().getFullYear();
   const [seasons, setSeasons] = useState([]);
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(false);
   const perPage = 12;
 
   useEffect(() => {
-    let cancelled = false;
+    if (!hasSupabase()) return;
     const load = async () => {
-      setLoading(true);
-      let dbSeasons = [];
-      if (hasSupabase()) {
-        const res = await fetchTable("seasons", {
-          order: { column: "year", ascending: false },
-        });
-        dbSeasons = res.data;
-      }
-      if (dbSeasons.length) {
-        if (!cancelled) {
-          setSeasons(dbSeasons);
-          setLoading(false);
-        }
-        return;
-      }
-      try {
-        const ergastSeasons = await getSeasons();
-        const mapped = mapErgastSeasons(ergastSeasons);
-        if (!cancelled) setSeasons(mapped);
-        if (hasSupabase() && mapped.length) {
-          await supabase.from("seasons").upsert(mapped, {
-            onConflict: "season_id",
-          });
-        }
-      } catch {
-        if (!cancelled) setSeasons([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      const res = await fetchTable("seasons", {
+        order: { column: "year", ascending: false },
+      });
+      setSeasons(res.data);
     };
     load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const totalPages = Math.ceil(seasons.length / perPage) || 1;
@@ -86,15 +55,13 @@ export default function Seasons() {
               </div>
             <div className="mt-3 font-f1bold text-2xl">{season.year}</div>
               <div className="mt-2 text-xs text-white/60">
-                {season.total_races
-                  ? `${season.total_races} races`
-                  : "Full calendar"}
+                Full calendar
               </div>
             </Link>
           ))
         ) : (
           <div className="glass-panel rounded-2xl p-6 text-white/60">
-            {loading ? "Loading seasons..." : "No data available."}
+            No seasons available.
           </div>
         )}
       </div>

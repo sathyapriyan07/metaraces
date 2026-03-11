@@ -10,9 +10,9 @@ export default function RaceCard({ race }) {
       <div className="text-xs uppercase tracking-[0.18em] text-white/50">
         Round {race.round} · {race.season_year}
       </div>
-      <div className="mt-2 font-f1bold text-lg">{race.race_name}</div>
+      <div className="mt-2 font-f1bold text-lg">{race.name}</div>
       <div className="text-xs text-white/60">
-        {race.circuits?.name || race.circuit_name || "Unknown Circuit"}
+        {race.circuit?.name || "Unknown Circuit"}
       </div>
       <div className="mt-4 flex items-center justify-between text-xs text-white/60">
         <span>{race.date || "TBD"}</span>

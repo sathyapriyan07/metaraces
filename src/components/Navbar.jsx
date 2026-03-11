@@ -69,9 +69,7 @@ export default function Navbar() {
               key={to}
               to={to}
               className={({ isActive }) =>
-                `${navLinkBase} ${
-                  isActive ? "text-white" : "text-white/60"
-                }`
+                `${navLinkBase} ${isActive ? "text-white" : "text-white/60"}`
               }
             >
               {label}
@@ -114,7 +112,7 @@ export default function Navbar() {
                           to={`/drivers/${driver.driver_id}`}
                           className="rounded-lg bg-white/5 px-3 py-2 transition hover:bg-white/10"
                         >
-                          {driver.first_name} {driver.last_name} ·{" "}
+                          {driver.given_name} {driver.family_name} ·{" "}
                           {driver.nationality}
                         </Link>
                       ))}
@@ -163,7 +161,7 @@ export default function Navbar() {
                           to={`/seasons/${season.year}`}
                           className="rounded-lg bg-white/5 px-3 py-2 transition hover:bg-white/10"
                         >
-                          {season.year} · {season.total_races} races
+                          {season.year}
                         </Link>
                       ))}
                     </div>
@@ -177,4 +175,3 @@ export default function Navbar() {
     </header>
   );
 }
-

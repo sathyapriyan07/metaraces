@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import RaceCard from "../components/RaceCard.jsx";
 import Pagination from "../components/Pagination.jsx";
-import { fetchTable, hasSupabase } from "../services/supabaseClient";
+import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
 
 export default function Races() {
   const [races, setRaces] = useState([]);
@@ -12,10 +12,11 @@ export default function Races() {
   useEffect(() => {
     if (!hasSupabase()) return;
     const load = async () => {
-      const res = await fetchTable("races", {
-        order: { column: "date", ascending: false },
-      });
-      if (res.data.length) setRaces(res.data);
+      const { data } = await supabase
+        .from("races")
+        .select("race_id, round, season_year, name, date, circuit:circuits(name)")
+        .order("date", { ascending: false });
+      if (data?.length) setRaces(data);
     };
     load();
   }, []);
@@ -23,7 +24,7 @@ export default function Races() {
   const filtered = useMemo(() => {
     const term = search.toLowerCase();
     return races.filter((race) =>
-      `${race.race_name} ${race.season_year}`.toLowerCase().includes(term)
+      `${race.name} ${race.season_year}`.toLowerCase().includes(term)
     );
   }, [races, search]);
 

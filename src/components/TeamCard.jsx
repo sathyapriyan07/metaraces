@@ -28,7 +28,7 @@ export default function TeamCard({ team }) {
         </div>
       </div>
       <div className="mt-4 flex items-center justify-between text-xs text-white/60">
-        <span>{team.championships || 0} titles</span>
+        <span>ID {team.constructor_id}</span>
         <Link
           to={`/constructors/${team.constructor_id}`}
           className="text-f1red transition group-hover:text-white"

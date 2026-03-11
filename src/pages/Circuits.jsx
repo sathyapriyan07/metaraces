@@ -1,54 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import CircuitCard from "../components/CircuitCard.jsx";
 import Pagination from "../components/Pagination.jsx";
-import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
-import { getCircuits } from "../services/ergastService";
-import { mapErgastCircuits } from "../services/ergastMapper";
+import { fetchTable, hasSupabase } from "../services/supabaseClient";
 
 export default function Circuits() {
   const [circuits, setCircuits] = useState([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(false);
   const perPage = 12;
 
   useEffect(() => {
-    let cancelled = false;
+    if (!hasSupabase()) return;
     const load = async () => {
-      setLoading(true);
-      let dbCircuits = [];
-      if (hasSupabase()) {
-        const res = await fetchTable("circuits", {
-          order: { column: "name", ascending: true },
-        });
-        dbCircuits = res.data;
-      }
-      if (dbCircuits.length) {
-        if (!cancelled) {
-          setCircuits(dbCircuits);
-          setLoading(false);
-        }
-        return;
-      }
-      try {
-        const ergastCircuits = await getCircuits();
-        const mapped = mapErgastCircuits(ergastCircuits);
-        if (!cancelled) setCircuits(mapped);
-        if (hasSupabase() && mapped.length) {
-          await supabase.from("circuits").upsert(mapped, {
-            onConflict: "circuit_id",
-          });
-        }
-      } catch {
-        if (!cancelled) setCircuits([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      const res = await fetchTable("circuits", {
+        order: { column: "name", ascending: true },
+      });
+      setCircuits(res.data);
     };
     load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -86,7 +55,7 @@ export default function Circuits() {
 
       {!visible.length && (
         <div className="glass-panel rounded-2xl p-6 text-white/60">
-          {loading ? "Loading circuits..." : "No data available."}
+          No circuits available.
         </div>
       )}
 

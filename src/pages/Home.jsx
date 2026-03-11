@@ -4,7 +4,7 @@ import DriverCard from "../components/DriverCard.jsx";
 import TeamCard from "../components/TeamCard.jsx";
 import RaceCard from "../components/RaceCard.jsx";
 import StandingsTable from "../components/StandingsTable.jsx";
-import { fetchTable, hasSupabase } from "../services/supabaseClient";
+import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
 
 export default function Home() {
   const [drivers, setDrivers] = useState([]);
@@ -18,36 +18,37 @@ export default function Home() {
     if (!hasSupabase()) return;
     const load = async () => {
       const driversRes = await fetchTable("drivers", {
-        order: { column: "debut_year", ascending: false },
+        order: { column: "created_at", ascending: false },
         limit: 3,
       });
       if (driversRes.data.length) setDrivers(driversRes.data);
 
       const constructorsRes = await fetchTable("constructors", {
-        order: { column: "championships", ascending: false },
+        order: { column: "created_at", ascending: false },
         limit: 3,
       });
       if (constructorsRes.data.length) setConstructors(constructorsRes.data);
 
-      const racesRes = await fetchTable("races", {
-        order: { column: "date", ascending: false },
-        limit: 3,
-      });
-      if (racesRes.data.length) setRaces(racesRes.data);
+      const { data: raceRows } = await supabase
+        .from("races")
+        .select("race_id, round, season_year, name, date, circuit:circuits(name)")
+        .order("date", { ascending: false })
+        .limit(3);
+      if (raceRows?.length) setRaces(raceRows);
 
-      const driverStandingsRes = await fetchTable("driver_standings", {
-        order: { column: "position", ascending: true },
-        limit: 5,
-      });
-      if (driverStandingsRes.data.length)
-        setDriverStandings(driverStandingsRes.data);
+      const { data: driverRows } = await supabase
+        .from("driver_standings")
+        .select("position, points, wins, driver:drivers(given_name,family_name,driver_id)")
+        .order("position", { ascending: true })
+        .limit(5);
+      if (driverRows?.length) setDriverStandings(driverRows);
 
-      const constructorStandingsRes = await fetchTable("constructor_standings", {
-        order: { column: "position", ascending: true },
-        limit: 5,
-      });
-      if (constructorStandingsRes.data.length)
-        setConstructorStandings(constructorStandingsRes.data);
+      const { data: constructorRows } = await supabase
+        .from("constructor_standings")
+        .select("position, points, wins, constructor:constructors(name,constructor_id)")
+        .order("position", { ascending: true })
+        .limit(5);
+      if (constructorRows?.length) setConstructorStandings(constructorRows);
 
       const seasonsRes = await fetchTable("seasons", {
         order: { column: "year", ascending: false },

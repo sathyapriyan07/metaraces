@@ -12,7 +12,7 @@ export default function DriverCard({ driver }) {
           {driver.photo_url ? (
             <img
               src={driver.photo_url}
-              alt={`${driver.first_name} ${driver.last_name}`}
+              alt={`${driver.given_name} ${driver.family_name}`}
               loading="lazy"
               className="h-full w-full object-cover"
             />
@@ -24,13 +24,13 @@ export default function DriverCard({ driver }) {
         </div>
         <div>
           <div className="font-f1bold text-lg">
-            {driver.first_name} {driver.last_name}
+            {driver.given_name} {driver.family_name}
           </div>
           <div className="text-xs text-white/60">{driver.nationality}</div>
         </div>
       </div>
       <div className="mt-4 flex items-center justify-between text-xs text-white/60">
-        <span>Debut {driver.debut_year || "—"}</span>
+        <span>ID {driver.driver_id}</span>
         <Link
           to={`/drivers/${driver.driver_id}`}
           className="text-f1red transition group-hover:text-white"

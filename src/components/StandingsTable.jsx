@@ -26,8 +26,15 @@ export default function StandingsTable({ title, rows, type = "driver" }) {
                 <td className="py-2 pr-3">{row.position}</td>
                 <td className="py-2 pr-3">
                   {type === "driver"
-                    ? row.driver_name || row.name || row.driver?.name
-                    : row.constructor_name || row.name || row.constructor?.name}
+                    ? row.driver_name ||
+                      row.name ||
+                      (row.driver
+                        ? `${row.driver.given_name || ""} ${row.driver.family_name || ""}`.trim()
+                        : row.driver_id)
+                    : row.constructor_name ||
+                      row.name ||
+                      row.constructor?.name ||
+                      row.constructor_id}
                 </td>
                 <td className="py-2 pr-3">{row.wins}</td>
                 <td className="py-2 pr-3">{row.points}</td>

@@ -8,9 +8,9 @@ export default function CircuitCard({ circuit }) {
       className="glass-panel group rounded-2xl p-4 transition"
     >
       <div className="h-32 overflow-hidden rounded-xl bg-white/5">
-        {circuit.track_map_url ? (
+        {circuit.map_url ? (
           <img
-            src={circuit.track_map_url}
+            src={circuit.map_url}
             alt={circuit.name}
             loading="lazy"
             className="h-full w-full object-cover"
@@ -23,10 +23,10 @@ export default function CircuitCard({ circuit }) {
       </div>
       <div className="mt-3 font-f1bold text-lg">{circuit.name}</div>
       <div className="text-xs text-white/60">
-        {circuit.country} · {circuit.length_km || "--"} km
+        {circuit.locality || "--"}, {circuit.country || "--"}
       </div>
       <div className="mt-4 flex items-center justify-between text-xs text-white/60">
-        <span>First GP {circuit.first_grand_prix || "—"}</span>
+        <span>ID {circuit.circuit_id}</span>
         <Link
           to={`/circuits/${circuit.circuit_id}`}
           className="text-f1red transition group-hover:text-white"

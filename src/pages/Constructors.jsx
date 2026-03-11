@@ -1,54 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import Pagination from "../components/Pagination.jsx";
-import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
-import { getConstructors } from "../services/ergastService";
-import { mapErgastConstructors } from "../services/ergastMapper";
+import { fetchTable, hasSupabase } from "../services/supabaseClient";
 import { Link } from "react-router-dom";
 
 export default function Constructors() {
   const [teams, setTeams] = useState([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(false);
   const perPage = 12;
 
   useEffect(() => {
-    let cancelled = false;
+    if (!hasSupabase()) return;
     const load = async () => {
-      setLoading(true);
-      let dbTeams = [];
-      if (hasSupabase()) {
-        const res = await fetchTable("constructors", {
-          order: { column: "name", ascending: true },
-        });
-        dbTeams = res.data;
-      }
-      if (dbTeams.length) {
-        if (!cancelled) {
-          setTeams(dbTeams);
-          setLoading(false);
-        }
-        return;
-      }
-      try {
-        const ergastTeams = await getConstructors();
-        const mapped = mapErgastConstructors(ergastTeams);
-        if (!cancelled) setTeams(mapped);
-        if (hasSupabase() && mapped.length) {
-          await supabase.from("constructors").upsert(mapped, {
-            onConflict: "constructor_id",
-          });
-        }
-      } catch {
-        if (!cancelled) setTeams([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      const res = await fetchTable("constructors", {
+        order: { column: "name", ascending: true },
+      });
+      setTeams(res.data);
     };
     load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -109,9 +78,6 @@ export default function Constructors() {
                   <div className="text-sm text-white/60">
                     {team.nationality || "—"}
                   </div>
-                  <div className="text-xs text-white/50">
-                    Championships: {team.championships ?? 0}
-                  </div>
                 </div>
               </div>
               <div className="flex shrink-0 items-center justify-end">
@@ -126,7 +92,7 @@ export default function Constructors() {
           ))
         ) : (
           <div className="glass-panel rounded-2xl p-6 text-white/60">
-            {loading ? "Loading constructors..." : "No data available."}
+            No constructors available.
           </div>
         )}
       </div>

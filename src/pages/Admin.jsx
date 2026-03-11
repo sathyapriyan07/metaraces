@@ -2,38 +2,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase, hasSupabase } from "../services/supabaseClient";
 import { importExcelToTable } from "../services/excelImporter";
+import { importDrivers as importDriversService } from "../services/import/importDrivers";
+import { importConstructors as importConstructorsService } from "../services/import/importConstructors";
+import { importCircuits as importCircuitsService } from "../services/import/importCircuits";
+import { importSeasons as importSeasonsService } from "../services/import/importSeasons";
+import { importRaces as importRacesService } from "../services/import/importRaces";
+import { importResults as importResultsService } from "../services/import/importResults";
+import { importPitStops as importPitStopsService } from "../services/import/importPitStops";
 import {
-  fetchErgastLatestSeason,
-  fetchJolpicaSeason,
-  fetchOpenF1RaceWeekends,
-} from "../services/f1Api";
-import {
-  getCircuits,
-  getConstructorStandings,
-  getConstructors,
-  getDriverStandings,
-  getDrivers,
-  getFastestLap,
-  getPitStops,
-  getQualifyingResults,
-  getRaceResults,
-  getSeasonRaces,
-  getSeasons,
-} from "../services/ergastService";
-import {
-  mapErgastCircuits,
-  mapErgastConstructorStandings,
-  mapErgastConstructors,
-  mapErgastDriverStandings,
-  mapErgastDrivers,
-  mapErgastFastestLap,
-  mapErgastPitStops,
-  mapErgastQualifyingResults,
-  mapErgastRaceCircuits,
-  mapErgastRaces,
-  mapErgastResults,
-  mapErgastSeasons,
-} from "../services/ergastMapper";
+  importConstructorStandings as importConstructorStandingsService,
+  importDriverStandings as importDriverStandingsService,
+} from "../services/import/importStandings";
+import { importSeason } from "../services/import/importSeason";
 import AdminSidebar from "../components/AdminSidebar.jsx";
 import AdminTable from "../components/AdminTable.jsx";
 import AdminModal from "../components/AdminModal.jsx";
@@ -45,9 +25,11 @@ const excelTables = [
   "seasons",
   "races",
   "results",
+  "qualifying",
+  "pitstops",
+  "driver_constructor_history",
   "driver_standings",
   "constructor_standings",
-  "driver_constructor_contracts",
 ];
 
 const adminSections = [
@@ -63,14 +45,15 @@ const adminSections = [
   { id: "import", label: "Import Center" },
   { id: "ergast_import", label: "Ergast Import Center" },
   { id: "season_import", label: "Season Importer" },
+  { id: "admin_tools", label: "Admin Tools" },
   { id: "media", label: "Media Manager" },
 ];
 
 const tableConfigs = {
   drivers: {
     table: "drivers",
-    id: "driver_id",
-    search: ["first_name", "last_name", "nationality", "driver_code"],
+    id: "id",
+    search: ["driver_id", "given_name", "family_name", "nationality", "code"],
     columns: [
       { key: "driver_id", label: "driver_id", sortable: true },
       {
@@ -87,29 +70,29 @@ const tableConfigs = {
             "-"
           ),
       },
-      { key: "first_name", label: "first_name", sortable: true },
-      { key: "last_name", label: "last_name", sortable: true },
+      { key: "given_name", label: "given_name", sortable: true },
+      { key: "family_name", label: "family_name", sortable: true },
       { key: "nationality", label: "nationality", sortable: true },
-      { key: "number", label: "number", sortable: true },
-      { key: "debut_year", label: "debut_year", sortable: true },
+      { key: "permanent_number", label: "permanent_number", sortable: true },
     ],
     fields: [
+      { key: "id", label: "id" },
       { key: "driver_id", label: "driver_id" },
       { key: "photo_url", label: "photo_url" },
-      { key: "first_name", label: "first_name" },
-      { key: "last_name", label: "last_name" },
-      { key: "driver_code", label: "driver_code" },
-      { key: "number", label: "number", type: "number" },
+      { key: "given_name", label: "given_name" },
+      { key: "family_name", label: "family_name" },
+      { key: "code", label: "code" },
+      { key: "permanent_number", label: "permanent_number", type: "number" },
       { key: "nationality", label: "nationality" },
       { key: "date_of_birth", label: "date_of_birth", type: "date" },
-      { key: "debut_year", label: "debut_year", type: "number" },
+      { key: "url", label: "url" },
     ],
-    required: ["driver_id", "first_name", "last_name"],
+    required: ["driver_id"],
   },
   constructors: {
     table: "constructors",
-    id: "constructor_id",
-    search: ["name", "nationality", "base_location"],
+    id: "id",
+    search: ["constructor_id", "name", "nationality"],
     columns: [
       { key: "constructor_id", label: "constructor_id", sortable: true },
       {
@@ -128,90 +111,86 @@ const tableConfigs = {
       },
       { key: "name", label: "name", sortable: true },
       { key: "nationality", label: "nationality", sortable: true },
-      { key: "championships", label: "championships", sortable: true },
     ],
     fields: [
+      { key: "id", label: "id" },
       { key: "constructor_id", label: "constructor_id" },
       { key: "name", label: "name" },
       { key: "nationality", label: "nationality" },
-      { key: "base_location", label: "base_location" },
-      { key: "championships", label: "championships", type: "number" },
       { key: "logo_url", label: "logo_url" },
+      { key: "url", label: "url" },
     ],
     required: ["constructor_id", "name"],
   },
   circuits: {
     table: "circuits",
-    id: "circuit_id",
-    search: ["name", "country", "city"],
+    id: "id",
+    search: ["circuit_id", "name", "country", "locality"],
     columns: [
       { key: "circuit_id", label: "circuit_id", sortable: true },
       { key: "name", label: "name", sortable: true },
       { key: "country", label: "country", sortable: true },
-      { key: "length_km", label: "length_km", sortable: true },
-      { key: "first_grand_prix", label: "first_grand_prix", sortable: true },
+      { key: "locality", label: "locality", sortable: true },
     ],
     fields: [
+      { key: "id", label: "id" },
       { key: "circuit_id", label: "circuit_id" },
       { key: "name", label: "name" },
-      { key: "city", label: "city" },
+      { key: "locality", label: "locality" },
       { key: "country", label: "country" },
-      { key: "length_km", label: "length_km" },
-      { key: "first_grand_prix", label: "first_grand_prix", type: "number" },
-      { key: "track_map_url", label: "track_map_url" },
+      { key: "lat", label: "lat" },
+      { key: "lng", label: "lng" },
+      { key: "url", label: "url" },
+      { key: "map_url", label: "map_url" },
+      { key: "image_url", label: "image_url" },
     ],
     required: ["circuit_id", "name"],
   },
   seasons: {
     table: "seasons",
-    id: "season_id",
+    id: "id",
     search: ["year"],
     columns: [
-      { key: "season_id", label: "season_id", sortable: true },
       { key: "year", label: "year", sortable: true },
-      { key: "champion_driver_id", label: "champion_driver_id" },
-      { key: "champion_constructor_id", label: "champion_constructor_id" },
-      { key: "total_races", label: "total_races", sortable: true },
+      { key: "url", label: "url" },
     ],
     fields: [
-      { key: "season_id", label: "season_id" },
+      { key: "id", label: "id" },
       { key: "year", label: "year", type: "number" },
-      { key: "champion_driver_id", label: "champion_driver_id" },
-      { key: "champion_constructor_id", label: "champion_constructor_id" },
-      { key: "total_races", label: "total_races", type: "number" },
+      { key: "url", label: "url" },
     ],
-    required: ["season_id", "year"],
+    required: ["year"],
   },
   races: {
     table: "races",
-    id: "race_id",
-    search: ["race_name", "season_year", "circuit_id"],
+    id: "id",
+    search: ["race_id", "name", "season_year"],
     columns: [
       { key: "race_id", label: "race_id", sortable: true },
-      { key: "race_name", label: "race_name", sortable: true },
+      { key: "name", label: "name", sortable: true },
       { key: "season_year", label: "season_year", sortable: true },
       { key: "round", label: "round", sortable: true },
       { key: "circuit_id", label: "circuit_id" },
       { key: "date", label: "date", sortable: true },
     ],
     fields: [
+      { key: "id", label: "id" },
       { key: "race_id", label: "race_id" },
       { key: "season_year", label: "season_year", type: "number" },
       { key: "round", label: "round", type: "number" },
-      { key: "race_name", label: "race_name" },
+      { key: "name", label: "name" },
       { key: "circuit_id", label: "circuit_id" },
       { key: "date", label: "date", type: "date" },
-      { key: "laps", label: "laps", type: "number" },
-      { key: "banner_url", label: "banner_url" },
+      { key: "time", label: "time" },
+      { key: "url", label: "url" },
     ],
-    required: ["race_id", "season_year", "race_name"],
+    required: ["race_id", "season_year", "name"],
   },
   results: {
     table: "results",
-    id: "result_id",
+    id: "id",
     search: ["race_id", "driver_id", "constructor_id", "status"],
     columns: [
-      { key: "result_id", label: "result_id", sortable: true },
       { key: "race_id", label: "race_id", sortable: true },
       { key: "driver_id", label: "driver_id", sortable: true },
       { key: "constructor_id", label: "constructor_id" },
@@ -221,7 +200,7 @@ const tableConfigs = {
       { key: "status", label: "status" },
     ],
     fields: [
-      { key: "result_id", label: "result_id" },
+      { key: "id", label: "id" },
       { key: "race_id", label: "race_id" },
       { key: "driver_id", label: "driver_id" },
       { key: "constructor_id", label: "constructor_id" },
@@ -230,8 +209,13 @@ const tableConfigs = {
       { key: "points", label: "points" },
       { key: "laps", label: "laps", type: "number" },
       { key: "status", label: "status" },
+      { key: "position_text", label: "position_text" },
+      { key: "time", label: "time" },
+      { key: "fastest_lap_rank", label: "fastest_lap_rank" },
+      { key: "fastest_lap_time", label: "fastest_lap_time" },
+      { key: "fastest_lap_speed", label: "fastest_lap_speed" },
     ],
-    required: ["result_id", "race_id", "driver_id"],
+    required: ["race_id", "driver_id"],
   },
   driver_standings: {
     table: "driver_standings",
@@ -277,8 +261,8 @@ const tableConfigs = {
     ],
     required: ["id", "season_year", "constructor_id"],
   },
-  driver_constructor_contracts: {
-    table: "driver_constructor_contracts",
+  driver_constructor_history: {
+    table: "driver_constructor_history",
     id: "id",
     search: ["driver_id", "constructor_id", "season_year"],
     columns: [
@@ -286,43 +270,22 @@ const tableConfigs = {
       { key: "driver_id", label: "driver", sortable: true },
       { key: "constructor_id", label: "constructor", sortable: true },
       { key: "season_year", label: "season_year", sortable: true },
-      { key: "driver_number", label: "driver_number", sortable: true },
+      { key: "start_round", label: "start_round", sortable: true },
     ],
     fields: [
       { key: "id", label: "id" },
       { key: "driver_id", label: "driver", type: "select", options: [] },
       { key: "constructor_id", label: "constructor", type: "select", options: [] },
       { key: "season_year", label: "season_year", type: "number" },
-      { key: "driver_number", label: "driver_number", type: "number" },
       { key: "start_round", label: "start_round", type: "number" },
       { key: "end_round", label: "end_round", type: "number" },
+      { key: "race_id", label: "race_id" },
     ],
     required: ["id", "driver_id", "constructor_id", "season_year"],
   },
 };
 
-function toRaceRows(races) {
-  return races.map((race) => ({
-    race_id: `${race.season}-${race.round}`,
-    season_year: Number(race.season),
-    round: Number(race.round),
-    race_name: race.raceName,
-    circuit_id: race.Circuit?.circuitId || race.Circuit?.circuitName,
-    date: race.date,
-    laps: null,
-    banner_url: null,
-  }));
-}
-
-function dedupeBy(items, key) {
-  const map = new Map();
-  items.forEach((item) => {
-    const value = item?.[key];
-    if (!value) return;
-    if (!map.has(value)) map.set(value, item);
-  });
-  return Array.from(map.values());
-}
+// Legacy OpenF1/Ergast mapping helpers removed.
 
 export default function Admin({ initialSection = "dashboard" }) {
   const [session, setSession] = useState(null);
@@ -332,10 +295,6 @@ export default function Admin({ initialSection = "dashboard" }) {
   const [activeSection, setActiveSection] = useState(initialSection);
   const [tableName, setTableName] = useState("drivers");
   const [file, setFile] = useState(null);
-  const [apiData, setApiData] = useState([]);
-  const [apiSource, setApiSource] = useState("races");
-  const [apiCircuits, setApiCircuits] = useState([]);
-  const [apiYear, setApiYear] = useState(new Date().getFullYear());
   const [ergastSeason, setErgastSeason] = useState(new Date().getFullYear());
   const [ergastRound, setErgastRound] = useState(1);
   const [ergastImportState, setErgastImportState] = useState({});
@@ -349,9 +308,13 @@ export default function Admin({ initialSection = "dashboard" }) {
   });
   const [seasonImportStats, setSeasonImportStats] = useState({});
   const [includeQualifying, setIncludeQualifying] = useState(false);
-  const [includeFastestLap, setIncludeFastestLap] = useState(true);
   const [includePitStops, setIncludePitStops] = useState(false);
   const seasonImportAbortRef = useRef(false);
+  const [toolsState, setToolsState] = useState({
+    loading: false,
+    log: [],
+    error: "",
+  });
   const [mediaForm, setMediaForm] = useState({
     table: "drivers",
     id: "",
@@ -394,10 +357,11 @@ export default function Admin({ initialSection = "dashboard" }) {
     if (activeSection === "standings") return standingsType;
     if (activeSection === "dashboard") return "drivers";
     if (activeSection === "driver_assignments")
-      return "driver_constructor_contracts";
+      return "driver_constructor_history";
     if (activeSection === "import") return null;
     if (activeSection === "ergast_import") return null;
     if (activeSection === "season_import") return null;
+    if (activeSection === "admin_tools") return null;
     if (activeSection === "media") return null;
     return activeSection;
   }, [activeSection, standingsType]);
@@ -439,117 +403,7 @@ export default function Admin({ initialSection = "dashboard" }) {
     setStatus(res.message);
   };
 
-  const handleApiImport = async () => {
-    if (!hasSupabase()) return;
-    if (!apiData.length) {
-      setStatus("No API data loaded.");
-      return;
-    }
-    if (apiSource !== "races") {
-      if (!apiCircuits.length) {
-        setStatus("OpenF1 data is missing circuit mappings.");
-        return;
-      }
-      const circuitsRes = await supabase
-        .from("circuits")
-        .upsert(apiCircuits, { onConflict: "circuit_id" });
-      if (circuitsRes.error) {
-        setStatus(circuitsRes.error.message);
-        return;
-      }
-      const racesRes = await supabase
-        .from("races")
-        .upsert(apiData, { onConflict: "race_id" });
-      if (racesRes.error) {
-        setStatus(racesRes.error.message);
-        return;
-      }
-      setStatus(`Imported ${apiData.length} OpenF1 races.`);
-      return;
-    }
-    const { error } = await supabase
-      .from("races")
-      .upsert(apiData, { onConflict: "race_id" });
-    if (error) setStatus(error.message);
-    else setStatus(`Imported ${apiData.length} races.`);
-  };
-
-  const handleLoadErgast = async () => {
-    try {
-      const races = await fetchErgastLatestSeason();
-      setApiData(toRaceRows(races));
-      setApiSource("races");
-      setStatus(`Loaded ${races.length} races from Ergast.`);
-    } catch (error) {
-      setStatus(error.message);
-    }
-  };
-
-  const handleLoadJolpica = async () => {
-    try {
-      const races = await fetchJolpicaSeason(apiYear);
-      setApiData(toRaceRows(races));
-      setApiSource("races");
-      setStatus(`Loaded ${races.length} races for ${apiYear}.`);
-    } catch (error) {
-      setStatus(error.message);
-    }
-  };
-
-  const handleLoadOpenF1 = async () => {
-    try {
-      const { sessions, meetings } = await fetchOpenF1RaceWeekends(apiYear);
-      const meetingMap = new Map(
-        meetings.map((meeting) => [meeting.meeting_key, meeting])
-      );
-      const raceSessions = sessions.filter(
-        (session) =>
-          session.session_name === "Race" || session.session_type === "Race"
-      );
-      const ordered = [...raceSessions].sort((a, b) => {
-        const aTime = new Date(a.date_start || a.date_end || 0).getTime();
-        const bTime = new Date(b.date_start || b.date_end || 0).getTime();
-        return aTime - bTime;
-      });
-      const races = ordered.map((session, index) => {
-        const meeting = meetingMap.get(session.meeting_key);
-        const circuitKey = meeting?.circuit_key ?? session.circuit_key;
-        return {
-          race_id: `openf1-${apiYear}-${session.meeting_key || session.session_key}`,
-          season_year: apiYear,
-          round: index + 1,
-          race_name:
-            meeting?.meeting_name ||
-            `${meeting?.country_name || session.country_name || "Grand Prix"}`,
-          circuit_id: circuitKey ? `openf1-${circuitKey}` : null,
-          date: session.date_start
-            ? session.date_start.split("T")[0]
-            : null,
-          laps: null,
-          banner_url: null,
-        };
-      });
-      const circuits = meetings
-        .filter((meeting) => meeting.circuit_key)
-        .map((meeting) => ({
-          circuit_id: `openf1-${meeting.circuit_key}`,
-          name: meeting.circuit_short_name || meeting.circuit_name,
-          city: meeting.location,
-          country: meeting.country_name,
-          length_km: null,
-          first_grand_prix: null,
-          track_map_url: meeting.circuit_image || null,
-        }));
-      const uniqueRaces = dedupeBy(races, "race_id");
-      const uniqueCircuits = dedupeBy(circuits, "circuit_id");
-      setApiData(uniqueRaces);
-      setApiCircuits(uniqueCircuits);
-      setApiSource("openf1");
-      setStatus(`Loaded ${uniqueRaces.length} races from OpenF1.`);
-    } catch (error) {
-      setStatus(error.message);
-    }
-  };
+  // Legacy API data import removed in favor of unified import services.
 
   const setErgastState = (key, patch) => {
     setErgastImportState((prev) => ({
@@ -616,20 +470,15 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const drivers = await getDrivers();
+      const count = await importDriversService();
       setErgastState(key, {
-        log: ["Importing drivers...", `Processing ${drivers.length} drivers...`],
+        log: ["Importing drivers...", `Processing ${count} drivers...`],
       });
-      const mapped = mapErgastDrivers(drivers);
-      const { error } = await supabase.from("drivers").upsert(mapped, {
-        onConflict: "driver_id",
-      });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           "Importing drivers...",
-          `Processing ${drivers.length} drivers...`,
+          `Processing ${count} drivers...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -651,23 +500,18 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const constructors = await getConstructors();
+      const count = await importConstructorsService();
       setErgastState(key, {
         log: [
           "Importing constructors...",
-          `Processing ${constructors.length} constructors...`,
+          `Processing ${count} constructors...`,
         ],
       });
-      const mapped = mapErgastConstructors(constructors);
-      const { error } = await supabase.from("constructors").upsert(mapped, {
-        onConflict: "constructor_id",
-      });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           "Importing constructors...",
-          `Processing ${constructors.length} constructors...`,
+          `Processing ${count} constructors...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -689,23 +533,18 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const circuits = await getCircuits();
+      const count = await importCircuitsService();
       setErgastState(key, {
         log: [
           "Importing circuits...",
-          `Processing ${circuits.length} circuits...`,
+          `Processing ${count} circuits...`,
         ],
       });
-      const mapped = mapErgastCircuits(circuits);
-      const { error } = await supabase.from("circuits").upsert(mapped, {
-        onConflict: "circuit_id",
-      });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           "Importing circuits...",
-          `Processing ${circuits.length} circuits...`,
+          `Processing ${count} circuits...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -727,20 +566,15 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const seasons = await getSeasons();
+      const count = await importSeasonsService();
       setErgastState(key, {
-        log: ["Importing seasons...", `Processing ${seasons.length} seasons...`],
+        log: ["Importing seasons...", `Processing ${count} seasons...`],
       });
-      const mapped = mapErgastSeasons(seasons);
-      const { error } = await supabase.from("seasons").upsert(mapped, {
-        onConflict: "season_id",
-      });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           "Importing seasons...",
-          `Processing ${seasons.length} seasons...`,
+          `Processing ${count} seasons...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -767,30 +601,18 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const ergastRaces = await getSeasonRaces(ergastSeason);
-      const races = mapErgastRaces(ergastRaces);
+      const count = await importRacesService(ergastSeason);
       setErgastState(key, {
         log: [
           `Importing races for ${ergastSeason}...`,
-          `Processing ${races.length} races...`,
+          `Processing ${count} races...`,
         ],
       });
-      const circuitRows = mapErgastRaceCircuits(ergastRaces);
-      if (circuitRows.length) {
-        const { error } = await supabase.from("circuits").upsert(circuitRows, {
-          onConflict: "circuit_id",
-        });
-        if (error) throw new Error(`Supabase insert error: ${error.message}`);
-      }
-      const { error } = await supabase.from("races").upsert(races, {
-        onConflict: "race_id",
-      });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           `Importing races for ${ergastSeason}...`,
-          `Processing ${races.length} races...`,
+          `Processing ${count} races...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -820,47 +642,18 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const [ergastRaces, ergastResults] = await Promise.all([
-        getSeasonRaces(ergastSeason),
-        getRaceResults(ergastSeason, ergastRound),
-      ]);
-      const raceId = `${ergastSeason}-${ergastRound}`;
-      const races = mapErgastRaces(ergastRaces).filter(
-        (race) => race.race_id === raceId
-      );
-      const results = mapErgastResults(
-        ergastResults,
-        ergastSeason,
-        ergastRound
-      );
+      const count = await importResultsService(ergastSeason, ergastRound);
       setErgastState(key, {
         log: [
           `Importing results for ${ergastSeason} round ${ergastRound}...`,
-          `Processing ${results.length} results...`,
+          `Processing ${count} results...`,
         ],
       });
-      if (races.length) {
-        const circuitRows = mapErgastRaceCircuits(ergastRaces);
-        if (circuitRows.length) {
-          const { error } = await supabase
-            .from("circuits")
-            .upsert(circuitRows, { onConflict: "circuit_id" });
-          if (error) throw new Error(`Supabase insert error: ${error.message}`);
-        }
-        const { error } = await supabase.from("races").upsert(races, {
-          onConflict: "race_id",
-        });
-        if (error) throw new Error(`Supabase insert error: ${error.message}`);
-      }
-      const { error } = await supabase.from("results").upsert(results, {
-        onConflict: "result_id",
-      });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           `Importing results for ${ergastSeason} round ${ergastRound}...`,
-          `Processing ${results.length} results...`,
+          `Processing ${count} results...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -887,23 +680,18 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const standings = await getDriverStandings(ergastSeason);
+      const count = await importDriverStandingsService(ergastSeason);
       setErgastState(key, {
         log: [
           `Importing driver standings for ${ergastSeason}...`,
-          `Processing ${standings.length} standings...`,
+          `Processing ${count} standings...`,
         ],
       });
-      const mapped = mapErgastDriverStandings(standings, ergastSeason);
-      const { error } = await supabase
-        .from("driver_standings")
-        .upsert(mapped, { onConflict: "id" });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           `Importing driver standings for ${ergastSeason}...`,
-          `Processing ${standings.length} standings...`,
+          `Processing ${count} standings...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -930,23 +718,18 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const standings = await getConstructorStandings(ergastSeason);
+      const count = await importConstructorStandingsService(ergastSeason);
       setErgastState(key, {
         log: [
           `Importing constructor standings for ${ergastSeason}...`,
-          `Processing ${standings.length} standings...`,
+          `Processing ${count} standings...`,
         ],
       });
-      const mapped = mapErgastConstructorStandings(standings, ergastSeason);
-      const { error } = await supabase
-        .from("constructor_standings")
-        .upsert(mapped, { onConflict: "id" });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           `Importing constructor standings for ${ergastSeason}...`,
-          `Processing ${standings.length} standings...`,
+          `Processing ${count} standings...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -976,23 +759,18 @@ export default function Admin({ initialSection = "dashboard" }) {
       status: "",
     });
     try {
-      const stops = await getPitStops(ergastSeason, ergastRound);
+      const count = await importPitStopsService(ergastSeason, ergastRound);
       setErgastState(key, {
         log: [
           `Importing pit stops for ${ergastSeason} round ${ergastRound}...`,
-          `Processing ${stops.length} pit stops...`,
+          `Processing ${count} pit stops...`,
         ],
       });
-      const mapped = mapErgastPitStops(stops, ergastSeason, ergastRound);
-      const { error } = await supabase.from("pit_stops").upsert(mapped, {
-        onConflict: "id",
-      });
-      if (error) throw new Error(`Supabase insert error: ${error.message}`);
       setErgastState(key, {
         status: "Imported successfully.",
         log: [
           `Importing pit stops for ${ergastSeason} round ${ergastRound}...`,
-          `Processing ${stops.length} pit stops...`,
+          `Processing ${count} pit stops...`,
           "Saving to database...",
           "Import completed.",
         ],
@@ -1002,47 +780,6 @@ export default function Admin({ initialSection = "dashboard" }) {
     } finally {
       setErgastState(key, { loading: false });
     }
-  };
-
-  const chunkArray = (items, size) => {
-    const chunks = [];
-    for (let i = 0; i < items.length; i += size) {
-      chunks.push(items.slice(i, i + size));
-    }
-    return chunks;
-  };
-
-  const fetchExistingIds = async (table, idKey, ids) => {
-    const existing = new Set();
-    const chunks = chunkArray(ids, 200);
-    for (const chunk of chunks) {
-      const { data, error } = await supabase
-        .from(table)
-        .select(idKey)
-        .in(idKey, chunk);
-      if (error) throw error;
-      (data || []).forEach((row) => existing.add(row[idKey]));
-    }
-    return existing;
-  };
-
-  const insertNewRows = async (table, idKey, rows) => {
-    if (!rows.length) return { inserted: 0, skipped: 0 };
-    const ids = rows.map((row) => row[idKey]).filter(Boolean);
-    const existing = await fetchExistingIds(table, idKey, ids);
-    const freshRows = rows.filter(
-      (row) => row[idKey] && !existing.has(row[idKey])
-    );
-    const skipped = rows.length - freshRows.length;
-    if (!freshRows.length) return { inserted: 0, skipped };
-    const chunks = chunkArray(freshRows, 500);
-    let inserted = 0;
-    for (const chunk of chunks) {
-      const { error } = await supabase.from(table).insert(chunk);
-      if (error) throw error;
-      inserted += chunk.length;
-    }
-    return { inserted, skipped };
   };
 
   const handleSeasonImport = async () => {
@@ -1058,351 +795,22 @@ export default function Admin({ initialSection = "dashboard" }) {
     setSeasonImportLoading(true);
     setSeasonImportProgress({ label: "Fetching races", percent: 5 });
     try {
-      const checkCancelled = () => {
-        if (seasonImportAbortRef.current) {
-          throw new Error("cancelled");
-        }
-      };
-      const updateStats = (key, inserted, skipped) => {
+      const logLines = [];
+      const handleLog = (line) => {
+        logLines.push(line);
         setSeasonImportStats((prev) => ({
           ...prev,
-          [key]: {
-            inserted: (prev[key]?.inserted || 0) + inserted,
-            skipped: (prev[key]?.skipped || 0) + skipped,
-          },
+          log: logLines.slice(-6),
         }));
       };
-      const fetchJsonWithTimeout = async (url) => {
-        console.log("Season import endpoint:", url);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        try {
-          const res = await fetch(url, { signal: controller.signal });
-          if (!res.ok) {
-            throw new Error("API request failed");
-          }
-          const data = await res.json();
-          return data;
-        } catch (error) {
-          if (error.name === "AbortError") {
-            throw new Error("API unreachable");
-          }
-          if (error.message === "API request failed") {
-            throw new Error("API unreachable");
-          }
-          throw error;
-        } finally {
-          clearTimeout(timeoutId);
-        }
-      };
-
-      const fetchSeasonSchedule = async () => {
-        const url = `https://ergast.com/api/f1/${seasonYear}.json?limit=1000`;
-        const data = await fetchJsonWithTimeout(url);
-        const races = data?.MRData?.RaceTable?.Races || [];
-        console.log("Season import race count:", races.length);
-        if (!races.length) {
-          throw new Error("Season not available");
-        }
-        return races;
-      };
-
-      const fetchOpenF1Schedule = async () => {
-        const { sessions, meetings } = await fetchOpenF1RaceWeekends(seasonYear);
-        const meetingMap = new Map(
-          meetings.map((meeting) => [meeting.meeting_key, meeting])
-        );
-        const raceSessions = sessions.filter(
-          (session) =>
-            session.session_name === "Race" || session.session_type === "Race"
-        );
-        const ordered = [...raceSessions].sort((a, b) => {
-          const aTime = new Date(a.date_start || a.date_end || 0).getTime();
-          const bTime = new Date(b.date_start || b.date_end || 0).getTime();
-          return aTime - bTime;
-        });
-        const races = ordered.map((session, index) => {
-          const meeting = meetingMap.get(session.meeting_key);
-          const circuitKey = meeting?.circuit_key ?? session.circuit_key;
-          return {
-            race_id: `${seasonYear}-${index + 1}`,
-            season_year: seasonYear,
-            round: index + 1,
-            race_name:
-              meeting?.meeting_name ||
-              `${meeting?.country_name || session.country_name || "Grand Prix"}`,
-            circuit_id: circuitKey ? `openf1-${circuitKey}` : null,
-            date: session.date_start ? session.date_start.split("T")[0] : null,
-            laps: null,
-            banner_url: null,
-          };
-        });
-        const circuits = meetings
-          .filter((meeting) => meeting.circuit_key)
-          .map((meeting) => ({
-            circuit_id: `openf1-${meeting.circuit_key}`,
-            name: meeting.circuit_short_name || meeting.circuit_name,
-            city: meeting.location,
-            country: meeting.country_name,
-            length_km: null,
-            first_grand_prix: null,
-            track_map_url: meeting.circuit_image || null,
-          }));
-        console.log("OpenF1 fallback race count:", races.length);
-        return { races, circuits };
-      };
-
-      let ergastRaces = [];
-      let fallbackCircuits = [];
-      try {
-        ergastRaces = await fetchSeasonSchedule();
-      } catch (error) {
-        if (error.message === "API unreachable") {
-          console.log("Ergast unreachable, falling back to OpenF1");
-          const fallback = await fetchOpenF1Schedule();
-          ergastRaces = fallback.races.map((race) => ({
-            season: String(seasonYear),
-            round: String(race.round),
-            raceName: race.race_name,
-            date: race.date,
-            Circuit: { circuitId: race.circuit_id },
-          }));
-          fallbackCircuits = fallback.circuits;
-        } else {
-          throw error;
-        }
-      }
-
-      checkCancelled();
-      console.log("Import progress: importing races");
-      const races = mapErgastRaces(ergastRaces).map((race) => ({
-        race_id: race.race_id,
-        season_year: race.season_year,
-        round: race.round,
-        race_name: race.race_name,
-        circuit_id: race.circuit_id,
-        date: race.date,
-      }));
-      const raceInsert = await insertNewRows("races", "race_id", races);
-      updateStats("races", raceInsert.inserted, raceInsert.skipped);
-
-      setSeasonImportProgress({ label: "Importing circuits", percent: 15 });
-      console.log("Import progress: importing circuits");
-      let allCircuits = [];
-      if (fallbackCircuits.length) {
-        allCircuits = fallbackCircuits;
-      } else {
-        const circuitsUrl = "https://ergast.com/api/f1/circuits.json?limit=1000";
-        const circuitsData = await fetchJsonWithTimeout(circuitsUrl);
-        const circuits = circuitsData?.MRData?.CircuitTable?.Circuits || [];
-        if (!circuits.length) {
-          throw new Error("No race data returned");
-        }
-        allCircuits = mapErgastCircuits(circuits);
-      }
-      checkCancelled();
-      const circuitInsert = await insertNewRows(
-        "circuits",
-        "circuit_id",
-        allCircuits
-      );
-      updateStats("circuits", circuitInsert.inserted, circuitInsert.skipped);
-
-      setSeasonImportProgress({ label: "Importing drivers", percent: 25 });
-      console.log("Import progress: importing drivers");
-      const driversUrl = "https://ergast.com/api/f1/drivers.json?limit=1000";
-      const driversData = await fetchJsonWithTimeout(driversUrl);
-      const drivers = driversData?.MRData?.DriverTable?.Drivers || [];
-      if (!drivers.length) {
-        throw new Error("No race data returned");
-      }
-      const allDrivers = mapErgastDrivers(drivers);
-      checkCancelled();
-      const driverInsert = await insertNewRows(
-        "drivers",
-        "driver_id",
-        allDrivers
-      );
-      updateStats("drivers", driverInsert.inserted, driverInsert.skipped);
-
-      setSeasonImportProgress({ label: "Importing constructors", percent: 35 });
-      console.log("Import progress: importing constructors");
-      const constructorsUrl =
-        "https://ergast.com/api/f1/constructors.json?limit=1000";
-      const constructorsData = await fetchJsonWithTimeout(constructorsUrl);
-      const constructors =
-        constructorsData?.MRData?.ConstructorTable?.Constructors || [];
-      if (!constructors.length) {
-        throw new Error("No race data returned");
-      }
-      const allConstructors = mapErgastConstructors(constructors);
-      checkCancelled();
-      const constructorInsert = await insertNewRows(
-        "constructors",
-        "constructor_id",
-        allConstructors
-      );
-      updateStats(
-        "constructors",
-        constructorInsert.inserted,
-        constructorInsert.skipped
-      );
-
-      const rounds = races.map((race) => race.round).filter(Boolean);
-      if (!rounds.length) {
-        setSeasonImportProgress({
-          label: "Importing results",
-          percent: 80,
-        });
-      } else {
-        for (let i = 0; i < rounds.length; i += 1) {
-          const round = rounds[i];
-          const percent =
-            35 + Math.round(((i + 1) / rounds.length) * 45);
-          setSeasonImportProgress({
-            label: `Importing results (Round ${round})`,
-            percent,
-          });
-          console.log(`Import progress: importing results round ${round}`);
-          const resultsUrl = `https://ergast.com/api/f1/${seasonYear}/${round}/results.json?limit=1000`;
-          const resultsData = await fetchJsonWithTimeout(resultsUrl);
-          const ergastResults =
-            resultsData?.MRData?.RaceTable?.Races?.[0]?.Results || [];
-          if (!ergastResults.length) {
-            throw new Error("No race data returned");
-          }
-          checkCancelled();
-          const results = mapErgastResults(ergastResults, seasonYear, round);
-          const resultsInsert = await insertNewRows(
-            "results",
-            "result_id",
-            results
-          );
-          updateStats(
-            "results",
-            resultsInsert.inserted,
-            resultsInsert.skipped
-          );
-
-          const fastestLapResult = ergastResults.find(
-            (result) => result?.FastestLap?.rank === "1"
-          );
-          if (fastestLapResult) {
-            const fastestRow = mapErgastFastestLap(
-              fastestLapResult,
-              seasonYear,
-              round
-            );
-            if (fastestRow) {
-              const fastestInsert = await insertNewRows(
-                "fastest_laps",
-                "id",
-                [fastestRow]
-              );
-              updateStats(
-                "fastest_laps",
-                fastestInsert.inserted,
-                fastestInsert.skipped
-              );
-            }
-          }
-
-          if (includeQualifying) {
-            const qualifyingUrl = `https://ergast.com/api/f1/${seasonYear}/${round}/qualifying.json?limit=1000`;
-            const qualifyingData = await fetchJsonWithTimeout(qualifyingUrl);
-            const qualifying =
-              qualifyingData?.MRData?.RaceTable?.Races?.[0]
-                ?.QualifyingResults || [];
-            if (!qualifying.length) {
-              throw new Error("No race data returned");
-            }
-            checkCancelled();
-            const qualifyingRows = mapErgastQualifyingResults(
-              qualifying,
-              seasonYear,
-              round
-            );
-            const qualifyingInsert = await insertNewRows(
-              "qualifying_results",
-              "id",
-              qualifyingRows
-            );
-            updateStats(
-              "qualifying_results",
-              qualifyingInsert.inserted,
-              qualifyingInsert.skipped
-            );
-          }
-
-          if (includePitStops && seasonYear >= 2012) {
-            const pitStopsUrl = `https://ergast.com/api/f1/${seasonYear}/${round}/pitstops.json?limit=1000`;
-            const pitStopsData = await fetchJsonWithTimeout(pitStopsUrl);
-            const stops =
-              pitStopsData?.MRData?.RaceTable?.Races?.[0]?.PitStops || [];
-            if (!stops.length) {
-              throw new Error("No race data returned");
-            }
-            checkCancelled();
-            const stopRows = mapErgastPitStops(stops, seasonYear, round);
-            const pitInsert = await insertNewRows("pit_stops", "id", stopRows);
-            updateStats("pit_stops", pitInsert.inserted, pitInsert.skipped);
-          }
-        }
-      }
-
-      setSeasonImportProgress({ label: "Importing standings", percent: 90 });
-      console.log("Import progress: importing standings");
-      const driverStandingsUrl = `https://ergast.com/api/f1/${seasonYear}/driverStandings.json?limit=1000`;
-      const driverStandingsData =
-        await fetchJsonWithTimeout(driverStandingsUrl);
-      const driverStandings =
-        driverStandingsData?.MRData?.StandingsTable?.StandingsLists?.[0]
-          ?.DriverStandings || [];
-      if (!driverStandings.length) {
-        throw new Error("No race data returned");
-      }
-      checkCancelled();
-      const driverRows = mapErgastDriverStandings(
-        driverStandings,
-        seasonYear
-      );
-      const driverStandingsInsert = await insertNewRows(
-        "driver_standings",
-        "id",
-        driverRows
-      );
-      updateStats(
-        "driver_standings",
-        driverStandingsInsert.inserted,
-        driverStandingsInsert.skipped
-      );
-
-      const constructorStandingsUrl = `https://ergast.com/api/f1/${seasonYear}/constructorStandings.json?limit=1000`;
-      const constructorStandingsData = await fetchJsonWithTimeout(
-        constructorStandingsUrl
-      );
-      const constructorStandings =
-        constructorStandingsData?.MRData?.StandingsTable?.StandingsLists?.[0]
-          ?.ConstructorStandings || [];
-      if (!constructorStandings.length) {
-        throw new Error("No race data returned");
-      }
-      checkCancelled();
-      const constructorRows = mapErgastConstructorStandings(
-        constructorStandings,
-        seasonYear
-      );
-      const constructorStandingsInsert = await insertNewRows(
-        "constructor_standings",
-        "id",
-        constructorRows
-      );
-      updateStats(
-        "constructor_standings",
-        constructorStandingsInsert.inserted,
-        constructorStandingsInsert.skipped
-      );
-
+      await importSeason(seasonYear, {
+        includeQualifying,
+        includePitStops,
+        onProgress: (stage, percent) => {
+          setSeasonImportProgress({ label: stage, percent });
+        },
+        onLog: handleLog,
+      });
       setSeasonImportProgress({ label: "Complete", percent: 100 });
       setStatus(`Season ${seasonYear} imported successfully.`);
     } catch (error) {
@@ -1412,18 +820,186 @@ export default function Admin({ initialSection = "dashboard" }) {
           ...prev,
           label: "Cancelled",
         }));
-      } else if (error?.message === "Season not available") {
-        setStatus("Season not available.");
-      } else if (error?.message === "No race data returned") {
-        setStatus("No race data returned.");
-      } else if (error?.message === "API unreachable") {
-        setStatus("API unreachable.");
       } else {
-        setStatus("Failed to fetch season data from Ergast.");
+        setStatus(error?.message || "Season import failed.");
       }
     } finally {
       setSeasonImportLoading(false);
       seasonImportAbortRef.current = false;
+    }
+  };
+
+  const setTools = (patch) => {
+    setToolsState((prev) => ({ ...prev, ...patch }));
+  };
+
+  const appendToolsLog = (line) => {
+    setToolsState((prev) => ({
+      ...prev,
+      log: [...(prev.log || []), line].slice(-12),
+    }));
+  };
+
+  const importAllSeasons = async () => {
+    if (!hasSupabase()) return;
+    const currentYear = new Date().getFullYear();
+    setTools({ loading: true, error: "", log: [] });
+    try {
+      for (let year = 1950; year <= currentYear; year += 1) {
+        appendToolsLog(`Importing season ${year}...`);
+        await importSeason(year, {
+          includeQualifying: true,
+          includePitStops: year >= 2012,
+          onLog: appendToolsLog,
+        });
+      }
+      appendToolsLog("All seasons imported.");
+    } catch (error) {
+      setTools({ error: error?.message || "Import all seasons failed." });
+    } finally {
+      setTools({ loading: false });
+    }
+  };
+
+  const rebuildDriverTeamAssignments = async () => {
+    if (!hasSupabase()) return;
+    setTools({ loading: true, error: "", log: [] });
+    try {
+      appendToolsLog("Rebuilding driver-team assignments...");
+      const batchSize = 1000;
+      let from = 0;
+      while (true) {
+        const { data: resultsRows, error } = await supabase
+          .from("results")
+          .select("driver_id, constructor_id, race_id, race:races(season_year,round)")
+          .range(from, from + batchSize - 1);
+        if (error) throw new Error(`Supabase insert error: ${error.message}`);
+        if (!resultsRows?.length) break;
+        const rows = resultsRows.map((row) => ({
+          driver_id: row.driver_id,
+          constructor_id: row.constructor_id,
+          season_year: row.race?.season_year || null,
+          race_id: row.race_id,
+          start_round: row.race?.round || null,
+          end_round: row.race?.round || null,
+        }));
+        const { error: upsertError } = await supabase
+          .from("driver_constructor_history")
+          .upsert(rows, {
+            onConflict: "driver_id,constructor_id,season_year,race_id",
+          });
+        if (upsertError) {
+          throw new Error(`Supabase insert error: ${upsertError.message}`);
+        }
+        appendToolsLog(`Processed ${from + resultsRows.length} results...`);
+        from += batchSize;
+      }
+      appendToolsLog("Driver-team assignments rebuilt.");
+    } catch (error) {
+      setTools({ error: error?.message || "Rebuild assignments failed." });
+    } finally {
+      setTools({ loading: false });
+    }
+  };
+
+  const rebuildStandings = async () => {
+    if (!hasSupabase()) return;
+    setTools({ loading: true, error: "", log: [] });
+    try {
+      const { data: seasons } = await supabase
+        .from("seasons")
+        .select("year")
+        .order("year", { ascending: true });
+      const years = (seasons || []).map((row) => row.year);
+      for (const year of years) {
+        appendToolsLog(`Rebuilding standings for ${year}...`);
+        await importDriverStandingsService(year);
+        await importConstructorStandingsService(year);
+      }
+      appendToolsLog("Standings rebuild complete.");
+    } catch (error) {
+      setTools({ error: error?.message || "Rebuild standings failed." });
+    } finally {
+      setTools({ loading: false });
+    }
+  };
+
+  const resyncMissingData = async () => {
+    if (!hasSupabase()) return;
+    setTools({ loading: true, error: "", log: [] });
+    try {
+      const { data: seasons } = await supabase
+        .from("seasons")
+        .select("year")
+        .order("year", { ascending: true });
+      const years = (seasons || []).map((row) => row.year);
+      for (const year of years) {
+        const { count: raceCount } = await supabase
+          .from("races")
+          .select("id", { count: "exact", head: true })
+          .eq("season_year", year);
+        if (!raceCount) {
+          appendToolsLog(`Missing races for ${year}. Importing season...`);
+          await importSeason(year, {
+            includeQualifying: true,
+            includePitStops: year >= 2012,
+            onLog: appendToolsLog,
+          });
+          continue;
+        }
+
+        const { data: raceRows } = await supabase
+          .from("races")
+          .select("id, race_id, round")
+          .eq("season_year", year);
+        const raceIds = (raceRows || []).map((row) => row.id);
+        if (raceIds.length) {
+          const { data: resultRows } = await supabase
+            .from("results")
+            .select("race_id")
+            .in("race_id", raceIds);
+          const resultSet = new Set(
+            (resultRows || []).map((row) => row.race_id)
+          );
+          const missingRaces = (raceRows || []).filter(
+            (row) => !resultSet.has(row.id)
+          );
+          for (const missing of missingRaces) {
+            appendToolsLog(
+              `Missing results for ${missing.race_id}. Importing results...`
+            );
+            const round = Number(missing.race_id.split("-")[1]);
+            if (!Number.isNaN(round)) {
+              await importResultsService(year, round);
+            }
+          }
+        }
+
+        const { count: driverStandingsCount } = await supabase
+          .from("driver_standings")
+          .select("id", { count: "exact", head: true })
+          .eq("season_year", year);
+        if (!driverStandingsCount) {
+          appendToolsLog(`Missing driver standings for ${year}. Importing...`);
+          await importDriverStandingsService(year);
+        }
+
+        const { count: constructorStandingsCount } = await supabase
+          .from("constructor_standings")
+          .select("id", { count: "exact", head: true })
+          .eq("season_year", year);
+        if (!constructorStandingsCount) {
+          appendToolsLog(
+            `Missing constructor standings for ${year}. Importing...`
+          );
+          await importConstructorStandingsService(year);
+        }
+      }
+      appendToolsLog("Resync complete.");
+    } catch (error) {
+      setTools({ error: error?.message || "Resync missing data failed." });
+    } finally {
+      setTools({ loading: false });
     }
   };
 
@@ -1466,26 +1042,26 @@ export default function Admin({ initialSection = "dashboard" }) {
       const [driversRes, constructorsRes] = await Promise.all([
         supabase
           .from("drivers")
-          .select("driver_id, first_name, last_name")
-          .order("last_name", { ascending: true }),
+          .select("id, driver_id, given_name, family_name")
+          .order("family_name", { ascending: true }),
         supabase
           .from("constructors")
-          .select("constructor_id, name")
+          .select("id, constructor_id, name")
           .order("name", { ascending: true }),
       ]);
       if (!driversRes.error) {
         setDriverOptions(
           (driversRes.data || []).map((driver) => ({
-            value: driver.driver_id,
-            label: `${driver.first_name} ${driver.last_name}`,
+            value: driver.id,
+            label: `${driver.given_name} ${driver.family_name}`.trim(),
           }))
         );
       }
       if (!constructorsRes.error) {
         setConstructorOptions(
           (constructorsRes.data || []).map((team) => ({
-            value: team.constructor_id,
-            label: team.name,
+            value: team.id,
+            label: `${team.name} (${team.constructor_id})`,
           }))
         );
       }
@@ -1551,7 +1127,7 @@ export default function Admin({ initialSection = "dashboard" }) {
     if (!tableKey) return [];
     const config = tableConfigs[tableKey];
     if (!config) return [];
-    if (tableKey !== "driver_constructor_contracts") {
+    if (tableKey !== "driver_constructor_history") {
       return config.fields;
     }
     return config.fields.map((field) => {
@@ -1648,7 +1224,7 @@ export default function Admin({ initialSection = "dashboard" }) {
 
   const handleAssignmentSave = async () => {
     if (!hasSupabase()) return;
-    const config = tableConfigs.driver_constructor_contracts;
+    const config = tableConfigs.driver_constructor_history;
     const values = normalizeValues(config.fields, assignmentValues);
     if (!values.id) {
       if (values.driver_id && values.constructor_id && values.season_year) {
@@ -1671,7 +1247,7 @@ export default function Admin({ initialSection = "dashboard" }) {
     }
     setAssignmentModalOpen(false);
     setStatus("Driver assignment saved.");
-    if (activeTable === "driver_constructor_contracts") fetchTableData();
+    if (activeTable === "driver_constructor_history") fetchTableData();
   };
 
   const handleDelete = async (row) => {
@@ -1755,11 +1331,11 @@ export default function Admin({ initialSection = "dashboard" }) {
     if (table === "drivers") {
       return {
         id: "driver_id",
-        select: "driver_id, first_name, last_name, nationality",
+        select: "driver_id, given_name, family_name, nationality",
         filter: (term) =>
-          `first_name.ilike.%${term}%,last_name.ilike.%${term}%`,
+          `given_name.ilike.%${term}%,family_name.ilike.%${term}%`,
         format: (row) =>
-          `${row.first_name} ${row.last_name} - ${row.nationality || "-"}`,
+          `${row.given_name} ${row.family_name} - ${row.nationality || "-"}`,
       };
     }
     if (table === "constructors") {
@@ -1780,9 +1356,9 @@ export default function Admin({ initialSection = "dashboard" }) {
     }
     return {
       id: "race_id",
-      select: "race_id, race_name, season_year",
-      filter: (term) => `race_name.ilike.%${term}%`,
-      format: (row) => `${row.race_name} - ${row.season_year || "-"}`,
+      select: "race_id, name, season_year",
+      filter: (term) => `name.ilike.%${term}%`,
+      format: (row) => `${row.name} - ${row.season_year || "-"}`,
     };
   };
 
@@ -1821,7 +1397,7 @@ export default function Admin({ initialSection = "dashboard" }) {
     const config = tableConfigs[tableKey];
     if (!config) return null;
     const columns =
-      tableKey === "driver_constructor_contracts"
+                tableKey === "driver_constructor_history"
         ? config.columns.map((col) => {
             if (col.key === "driver_id") {
               return {
@@ -2095,49 +1671,6 @@ export default function Admin({ initialSection = "dashboard" }) {
                     Import Excel
                   </button>
                 </section>
-
-                <section className="glass-panel rounded-3xl p-6">
-                  <h2 className="font-f1bold text-xl">API Data Import</h2>
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <button
-                      onClick={handleLoadErgast}
-                      className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70"
-                    >
-                      Load Ergast Current Season
-                    </button>
-                    <button
-                      onClick={handleLoadOpenF1}
-                      className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70"
-                    >
-                      Load OpenF1 Sessions
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={apiYear}
-                        onChange={(event) =>
-                          setApiYear(Number(event.target.value))
-                        }
-                        className="w-24 rounded-lg border border-white/10 bg-black/80 px-3 py-2 text-xs text-white"
-                      />
-                      <button
-                        onClick={handleLoadJolpica}
-                        className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70"
-                      >
-                        Load Jolpica Season
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-4 text-xs text-white/60">
-                    Loaded rows: {apiData.length} · Source: {apiSource}
-                  </div>
-                  <button
-                    onClick={handleApiImport}
-                    className="mt-4 rounded-full bg-f1red px-4 py-2 text-xs uppercase tracking-[0.2em]"
-                  >
-                    Import API Data to Races
-                  </button>
-                </section>
               </>
             )}
 
@@ -2333,15 +1866,6 @@ export default function Admin({ initialSection = "dashboard" }) {
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={includeFastestLap}
-                      onChange={(event) => setIncludeFastestLap(event.target.checked)}
-                      disabled
-                    />
-                    Fastest laps included (from results)
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
                       checked={includePitStops}
                       onChange={(event) => setIncludePitStops(event.target.checked)}
                     />
@@ -2359,18 +1883,66 @@ export default function Admin({ initialSection = "dashboard" }) {
                         style={{ width: `${seasonImportProgress.percent}%` }}
                       />
                     </div>
-                    <div className="grid gap-1 text-[11px] text-white/60">
-                      {Object.entries(seasonImportStats).map(
-                        ([key, value]) => (
-                          <div key={key}>
-                            {key.replace(/_/g, " ")}: {value.inserted} inserted,{" "}
-                            {value.skipped} skipped
-                          </div>
-                        )
-                      )}
-                    </div>
+                    {seasonImportStats.log?.length ? (
+                      <div className="grid gap-1 text-[11px] text-white/60">
+                        {seasonImportStats.log.map((line, index) => (
+                          <div key={`season-log-${index}`}>{line}</div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 )}
+              </section>
+            )}
+
+            {activeSection === "admin_tools" && (
+              <section className="glass-panel rounded-3xl p-6">
+                <h2 className="font-f1bold text-xl">Admin Tools</h2>
+                <p className="mt-2 text-sm text-white/60">
+                  Bulk maintenance utilities for the relational archive.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    onClick={importAllSeasons}
+                    disabled={toolsState.loading}
+                    className="rounded-full bg-f1red px-4 py-2 text-xs uppercase tracking-[0.2em] disabled:opacity-60"
+                  >
+                    Import All Seasons
+                  </button>
+                  <button
+                    onClick={rebuildDriverTeamAssignments}
+                    disabled={toolsState.loading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-60"
+                  >
+                    Rebuild Driver-Team Assignments
+                  </button>
+                  <button
+                    onClick={rebuildStandings}
+                    disabled={toolsState.loading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-60"
+                  >
+                    Rebuild Standings
+                  </button>
+                  <button
+                    onClick={resyncMissingData}
+                    disabled={toolsState.loading}
+                    className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-60"
+                  >
+                    Resync Missing Data
+                  </button>
+                </div>
+                {toolsState.error && (
+                  <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
+                    {toolsState.error}
+                  </div>
+                )}
+                {toolsState.log?.length ? (
+                  <div className="mt-4 grid gap-1 text-[11px] text-white/60">
+                    {toolsState.log.map((line, index) => (
+                      <div key={`tools-log-${index}`}>{line}</div>
+                    ))}
+                  </div>
+                ) : null}
               </section>
             )}
 
@@ -2410,8 +1982,7 @@ export default function Admin({ initialSection = "dashboard" }) {
                   >
                     <option value="photo_url">photo_url</option>
                     <option value="logo_url">logo_url</option>
-                    <option value="track_map_url">track_map_url</option>
-                    <option value="banner_url">banner_url</option>
+                    <option value="map_url">map_url</option>
                   </select>
                   <div className="md:col-span-2">
                     <div className="flex flex-wrap gap-3">
@@ -2509,7 +2080,7 @@ export default function Admin({ initialSection = "dashboard" }) {
       <AdminModal
         open={assignmentModalOpen}
         title="Assign Driver to Constructor"
-        fields={getModalFields("driver_constructor_contracts")}
+        fields={getModalFields("driver_constructor_history")}
         values={assignmentValues}
         onChange={handleAssignmentChange}
         onClose={() => setAssignmentModalOpen(false)}

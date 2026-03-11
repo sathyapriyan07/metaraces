@@ -40,8 +40,10 @@ export async function searchAll(query) {
   const [drivers, constructors, circuits, seasons] = await Promise.all([
     supabase
       .from("drivers")
-      .select("driver_id, first_name, last_name, nationality")
-      .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%`)
+      .select("driver_id, given_name, family_name, nationality")
+      .or(
+        `given_name.ilike.%${query}%,family_name.ilike.%${query}%,driver_id.ilike.%${query}%`
+      )
       .limit(6),
     supabase
       .from("constructors")
@@ -50,12 +52,12 @@ export async function searchAll(query) {
       .limit(6),
     supabase
       .from("circuits")
-      .select("circuit_id, name, country")
-      .ilike("name", `%${query}%`)
+      .select("circuit_id, name, country, locality")
+      .or(`name.ilike.%${query}%,locality.ilike.%${query}%`)
       .limit(6),
     supabase
       .from("seasons")
-      .select("year, total_races")
+      .select("year")
       .or(`year.eq.${Number(query) || 0}`)
       .limit(6),
   ]);
