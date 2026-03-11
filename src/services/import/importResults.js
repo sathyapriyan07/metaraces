@@ -90,17 +90,17 @@ export async function importResults(year, round) {
   });
   const rows = Array.from(resultMap.values());
   const skipped = rawRows.length - rows.length;
-  console.log(`Race ${year}-${round}: results fetched ${rawRows.length}`);
-  console.log(`Race ${year}-${round}: unique results ${rows.length}`);
-  console.log(`Race ${year}-${round}: skipped duplicates ${skipped}`);
+  console.log(`Season ${year}`);
+  console.log(`Round ${round}`);
+  console.log(`Results fetched: ${rawRows.length}`);
+  console.log(`Unique results: ${rows.length}`);
+  console.log(`Duplicates removed: ${skipped}`);
 
-  for (const row of rows) {
-    await upsertRows(
-      "results",
-      [row],
-      "race_id,driver_id,constructor_id"
-    );
+  const batchSize = 20;
+  for (let idx = 0; idx < rows.length; idx += batchSize) {
+    const batch = rows.slice(idx, idx + batchSize);
+    await upsertRows("results", batch, "race_id,driver_id,constructor_id");
   }
-  console.log(`Race ${year}-${round}: inserted ${rows.length}`);
+  console.log(`Inserted rows: ${rows.length}`);
   return rows.length;
 }

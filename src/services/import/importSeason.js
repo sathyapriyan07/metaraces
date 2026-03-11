@@ -167,18 +167,18 @@ export async function importSeason(year, options = {}) {
     });
     const results = Array.from(resultMap.values());
     const skipped = rawResults.length - results.length;
-    log(`Race ${raceKey}: results fetched ${rawResults.length}`);
-    log(`Race ${raceKey}: unique results ${results.length}`);
-    log(`Race ${raceKey}: skipped duplicates ${skipped}`);
+    log(`Season ${year}`);
+    log(`Round ${round}`);
+    log(`Results fetched: ${rawResults.length}`);
+    log(`Unique results: ${results.length}`);
+    log(`Duplicates removed: ${skipped}`);
 
-    for (const row of results) {
-      await upsertRows(
-        "results",
-        [row],
-        "race_id,driver_id,constructor_id"
-      );
+    const batchSize = 20;
+    for (let idx = 0; idx < results.length; idx += batchSize) {
+      const batch = results.slice(idx, idx + batchSize);
+      await upsertRows("results", batch, "race_id,driver_id,constructor_id");
     }
-    log(`Race ${raceKey}: inserted ${results.length}`);
+    log(`Inserted rows: ${results.length}`);
 
     const historyRows = resultRows.map((result) => ({
       driver_id: driverIdMap.get(result.Driver?.driverId) || null,
