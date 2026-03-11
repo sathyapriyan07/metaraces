@@ -880,6 +880,7 @@ export default function Admin({ initialSection = "dashboard" }) {
           constructor_id: row.constructor_id,
           season_year: row.race?.season_year || null,
           race_id: row.race_id,
+          round: row.race?.round || null,
           start_round: row.race?.round || null,
           end_round: row.race?.round || null,
         }));

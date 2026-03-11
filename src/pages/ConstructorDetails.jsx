@@ -6,7 +6,7 @@ export default function ConstructorDetails() {
   const { constructorId } = useParams();
   const [team, setTeam] = useState(null);
   const [results, setResults] = useState([]);
-  const [drivers, setDrivers] = useState([]);
+  const [driversBySeason, setDriversBySeason] = useState([]);
 
   useEffect(() => {
     if (!hasSupabase()) return;
@@ -20,7 +20,7 @@ export default function ConstructorDetails() {
       setTeam(teamRow || null);
       if (!teamRow) {
         setResults([]);
-        setDrivers([]);
+        setDriversBySeason([]);
         return;
       }
 
@@ -39,7 +39,17 @@ export default function ConstructorDetails() {
         .select("season_year, driver:drivers(given_name,family_name,driver_id)")
         .eq("constructor_id", teamRow.id)
         .order("season_year", { ascending: false });
-      setDrivers(driverRows || []);
+      const grouped = new Map();
+      (driverRows || []).forEach((row) => {
+        const year = row.season_year;
+        if (!grouped.has(year)) grouped.set(year, []);
+        grouped.get(year).push(row.driver);
+      });
+      const timeline = Array.from(grouped.entries()).map(([year, drivers]) => ({
+        year,
+        drivers: drivers.filter(Boolean),
+      }));
+      setDriversBySeason(timeline);
     };
     load();
   }, [constructorId]);
@@ -84,21 +94,23 @@ export default function ConstructorDetails() {
       </section>
 
       <section className="glass-panel rounded-3xl p-6">
-        <h2 className="font-f1bold text-2xl">Drivers</h2>
+        <h2 className="font-f1bold text-2xl">Driver History</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {drivers.length ? (
-            drivers.map((row, index) => (
+          {driversBySeason.length ? (
+            driversBySeason.map((entry) => (
               <div
-                key={`${row.driver?.driver_id}-${index}`}
+                key={entry.year}
                 className="rounded-2xl border border-white/10 bg-black/80 p-4"
               >
-                <div className="font-f1bold text-lg">
-                  {row.driver
-                    ? `${row.driver.given_name} ${row.driver.family_name}`
-                    : "--"}
+                <div className="text-xs uppercase tracking-[0.2em] text-white/50">
+                  {entry.year}
                 </div>
-                <div className="text-xs text-white/60">
-                  Season: {row.season_year}
+                <div className="mt-2 grid gap-1 text-sm text-white/80">
+                  {entry.drivers.map((driver, index) => (
+                    <div key={`${driver.driver_id}-${index}`}>
+                      {driver.given_name} {driver.family_name}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))

@@ -76,8 +76,7 @@ create table if not exists public.results (
   fastest_lap_rank integer,
   fastest_lap_time text,
   fastest_lap_speed numeric,
-  created_at timestamptz default now(),
-  unique (race_id, driver_id)
+  created_at timestamptz default now()
 );
 
 create table if not exists public.qualifying (
@@ -111,6 +110,7 @@ create table if not exists public.driver_constructor_history (
   constructor_id uuid not null references public.constructors (id) on delete cascade,
   season_year integer not null references public.seasons (year) on delete cascade,
   race_id uuid references public.races (id) on delete set null,
+  round integer,
   start_round integer,
   end_round integer,
   created_at timestamptz default now(),
@@ -145,3 +145,45 @@ create index if not exists circuits_circuit_id_idx on public.circuits (circuit_i
 create index if not exists races_season_year_idx on public.races (season_year);
 create index if not exists results_race_id_idx on public.results (race_id);
 create index if not exists results_driver_id_idx on public.results (driver_id);
+create index if not exists results_constructor_id_idx on public.results (constructor_id);
+create index if not exists driver_constructor_history_constructor_idx on public.driver_constructor_history (constructor_id);
+create index if not exists driver_constructor_history_driver_idx on public.driver_constructor_history (driver_id);
+
+alter table public.results
+  drop constraint if exists results_unique;
+
+alter table public.results
+  add constraint results_unique unique (race_id, driver_id);
+
+create or replace view public.driver_career_stats as
+select
+  d.id as driver_id,
+  d.driver_id as driver_code,
+  d.given_name,
+  d.family_name,
+  count(res.id) as races,
+  sum(case when res.position = 1 then 1 else 0 end) as wins,
+  sum(case when res.position <= 3 then 1 else 0 end) as podiums,
+  sum(case when res.grid = 1 then 1 else 0 end) as poles,
+  sum(case when res.fastest_lap_rank = 1 then 1 else 0 end) as fastest_laps,
+  coalesce(sum(res.points), 0) as total_points,
+  count(distinct r.season_year) as seasons_active,
+  string_agg(distinct c.name, ', ' order by c.name) as teams
+from public.drivers d
+left join public.results res on res.driver_id = d.id
+left join public.races r on res.race_id = r.id
+left join public.constructors c on res.constructor_id = c.id
+group by d.id, d.driver_id, d.given_name, d.family_name;
+
+create or replace view public.driver_season_stats as
+select
+  r.season_year,
+  res.driver_id,
+  res.constructor_id,
+  count(*) as races,
+  sum(case when res.position = 1 then 1 else 0 end) as wins,
+  sum(case when res.position <= 3 then 1 else 0 end) as podiums,
+  coalesce(sum(res.points), 0) as points
+from public.results res
+join public.races r on r.id = res.race_id
+group by r.season_year, res.driver_id, res.constructor_id;

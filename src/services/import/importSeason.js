@@ -4,6 +4,7 @@ import {
   fetchIdMap,
   upsertRows,
 } from "./importUtils";
+import { supabase } from "../supabaseClient";
 
 const toNumber = (value) => {
   if (value === undefined || value === null || value === "") return null;
@@ -126,8 +127,23 @@ export async function importSeason(year, options = {}) {
       constructors.map((constructor) => constructor.constructor_id)
     );
 
-    const raceUuid = raceIdMap.get(`${year}-${round}`);
-    const results = resultRows.map((result) => ({
+    const raceKey = `${year}-${round}`;
+    const raceUuid = raceIdMap.get(raceKey);
+    if (!raceUuid) {
+      throw new Error("Race not found");
+    }
+
+    const { data: existingResult } = await supabase
+      .from("results")
+      .select("id")
+      .eq("race_id", raceUuid)
+      .limit(1);
+    if (existingResult?.length) {
+      log(`Race ${raceKey}: results already imported. Skipping.`);
+      continue;
+    }
+
+    const rawResults = resultRows.map((result) => ({
       race_id: raceUuid,
       driver_id: driverIdMap.get(result.Driver?.driverId) || null,
       constructor_id:
@@ -143,7 +159,25 @@ export async function importSeason(year, options = {}) {
       fastest_lap_time: result.FastestLap?.Time?.time || null,
       fastest_lap_speed: toNumber(result.FastestLap?.AverageSpeed?.speed),
     }));
-    await upsertRows("results", results, "race_id,driver_id");
+    const seen = new Set();
+    const results = [];
+    rawResults.forEach((row) => {
+      const key = `${row.race_id}-${row.driver_id}`;
+      if (!row.driver_id || seen.has(key)) return;
+      seen.add(key);
+      results.push(row);
+    });
+    const skipped = rawResults.length - results.length;
+    log(`Race ${raceKey}: results fetched ${rawResults.length}`);
+    log(`Race ${raceKey}: unique results ${results.length}`);
+    log(`Race ${raceKey}: skipped duplicates ${skipped}`);
+
+    const chunkSize = 50;
+    for (let idx = 0; idx < results.length; idx += chunkSize) {
+      const chunk = results.slice(idx, idx + chunkSize);
+      await upsertRows("results", chunk, "race_id,driver_id");
+    }
+    log(`Race ${raceKey}: inserted ${results.length}`);
 
     const historyRows = resultRows.map((result) => ({
       driver_id: driverIdMap.get(result.Driver?.driverId) || null,
@@ -151,6 +185,7 @@ export async function importSeason(year, options = {}) {
         constructorIdMap.get(result.Constructor?.constructorId) || null,
       season_year: Number(year),
       race_id: raceUuid,
+      round: toNumber(round),
       start_round: toNumber(round),
       end_round: toNumber(round),
     }));

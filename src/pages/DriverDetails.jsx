@@ -7,6 +7,7 @@ export default function DriverDetails() {
   const [driver, setDriver] = useState(null);
   const [results, setResults] = useState([]);
   const [teamHistory, setTeamHistory] = useState([]);
+  const [careerStats, setCareerStats] = useState(null);
 
   useEffect(() => {
     if (!hasSupabase()) return;
@@ -21,8 +22,16 @@ export default function DriverDetails() {
       if (!driverRow) {
         setResults([]);
         setTeamHistory([]);
+        setCareerStats(null);
         return;
       }
+
+      const { data: careerRow } = await supabase
+        .from("driver_career_stats")
+        .select("*")
+        .eq("driver_id", driverRow.id)
+        .single();
+      setCareerStats(careerRow || null);
 
       const { data: resultsRows } = await supabase
         .from("results")
@@ -83,6 +92,18 @@ export default function DriverDetails() {
               <div>Number: {driver.permanent_number || "—"}</div>
               <div>Code: {driver.code || "—"}</div>
             </div>
+            {careerStats && (
+              <div className="mt-4 grid gap-2 text-sm text-white/70">
+                <div>Races: {careerStats.races}</div>
+                <div>Wins: {careerStats.wins}</div>
+                <div>Podiums: {careerStats.podiums}</div>
+                <div>Poles: {careerStats.poles}</div>
+                <div>Fastest Laps: {careerStats.fastest_laps}</div>
+                <div>Points: {careerStats.total_points}</div>
+                <div>Seasons: {careerStats.seasons_active}</div>
+                <div>Teams: {careerStats.teams || "--"}</div>
+              </div>
+            )}
           </div>
         </div>
       </section>

@@ -4,6 +4,7 @@ import {
   fetchIdMap,
   upsertRows,
 } from "./importUtils";
+import { supabase } from "../supabaseClient";
 
 const toNumber = (value) => {
   if (value === undefined || value === null || value === "") return null;
@@ -56,7 +57,17 @@ export async function importResults(year, round) {
     throw new Error("Race not found");
   }
 
-  const rows = results.map((result) => ({
+  const { data: existingResult } = await supabase
+    .from("results")
+    .select("id")
+    .eq("race_id", raceUuid)
+    .limit(1);
+  if (existingResult?.length) {
+    console.log(`Race ${year}-${round}: results already imported. Skipping.`);
+    return 0;
+  }
+
+  const rawRows = results.map((result) => ({
     race_id: raceUuid,
     driver_id: driverIdMap.get(result.Driver?.driverId) || null,
     constructor_id: constructorIdMap.get(result.Constructor?.constructorId) || null,
@@ -71,6 +82,24 @@ export async function importResults(year, round) {
     fastest_lap_time: result.FastestLap?.Time?.time || null,
     fastest_lap_speed: toNumber(result.FastestLap?.AverageSpeed?.speed),
   }));
-  await upsertRows("results", rows, "race_id,driver_id");
+  const seen = new Set();
+  const rows = [];
+  rawRows.forEach((row) => {
+    const key = `${row.race_id}-${row.driver_id}`;
+    if (!row.driver_id || seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  });
+  const skipped = rawRows.length - rows.length;
+  console.log(`Race ${year}-${round}: results fetched ${rawRows.length}`);
+  console.log(`Race ${year}-${round}: unique results ${rows.length}`);
+  console.log(`Race ${year}-${round}: skipped duplicates ${skipped}`);
+
+  const chunkSize = 50;
+  for (let idx = 0; idx < rows.length; idx += chunkSize) {
+    const chunk = rows.slice(idx, idx + chunkSize);
+    await upsertRows("results", chunk, "race_id,driver_id");
+  }
+  console.log(`Race ${year}-${round}: inserted ${rows.length}`);
   return rows.length;
 }
