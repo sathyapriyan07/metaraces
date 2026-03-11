@@ -85,8 +85,8 @@ export async function importResults(year, round) {
   const seen = new Set();
   const rows = [];
   rawRows.forEach((row) => {
-    const key = `${row.race_id}-${row.driver_id}`;
-    if (!row.driver_id || seen.has(key)) return;
+    const key = `${row.race_id}-${row.driver_id}-${row.constructor_id}`;
+    if (!row.driver_id || !row.constructor_id || seen.has(key)) return;
     seen.add(key);
     rows.push(row);
   });
@@ -95,10 +95,10 @@ export async function importResults(year, round) {
   console.log(`Race ${year}-${round}: unique results ${rows.length}`);
   console.log(`Race ${year}-${round}: skipped duplicates ${skipped}`);
 
-  const chunkSize = 50;
+  const chunkSize = 25;
   for (let idx = 0; idx < rows.length; idx += chunkSize) {
     const chunk = rows.slice(idx, idx + chunkSize);
-    await upsertRows("results", chunk, "race_id,driver_id");
+    await upsertRows("results", chunk, "race_id,driver_id,constructor_id");
   }
   console.log(`Race ${year}-${round}: inserted ${rows.length}`);
   return rows.length;

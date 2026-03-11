@@ -153,7 +153,7 @@ alter table public.results
   drop constraint if exists results_unique;
 
 alter table public.results
-  add constraint results_unique unique (race_id, driver_id);
+  add constraint results_unique unique (race_id, driver_id, constructor_id);
 
 create or replace view public.driver_career_stats as
 select
@@ -187,3 +187,40 @@ select
 from public.results res
 join public.races r on r.id = res.race_id
 group by r.season_year, res.driver_id, res.constructor_id;
+
+create or replace view public.constructor_career_stats as
+select
+  c.id as constructor_id,
+  c.constructor_id as constructor_code,
+  c.name,
+  count(res.id) as races,
+  sum(case when res.position = 1 then 1 else 0 end) as wins,
+  sum(case when res.position <= 3 then 1 else 0 end) as podiums,
+  sum(res.points) as total_points,
+  count(distinct r.season_year) as seasons_active
+from public.constructors c
+left join public.results res on res.constructor_id = c.id
+left join public.races r on res.race_id = r.id
+group by c.id, c.constructor_id, c.name;
+
+create or replace view public.race_winners as
+select
+  res.race_id,
+  r.race_id as race_code,
+  r.name as race_name,
+  r.season_year,
+  r.round,
+  r.date,
+  r.circuit_id,
+  d.id as driver_id,
+  d.driver_id as driver_code,
+  d.given_name,
+  d.family_name,
+  c.id as constructor_id,
+  c.constructor_id as constructor_code,
+  c.name as constructor_name
+from public.results res
+join public.races r on r.id = res.race_id
+left join public.drivers d on d.id = res.driver_id
+left join public.constructors c on c.id = res.constructor_id
+where res.position = 1;

@@ -36,6 +36,14 @@ export default function TeamCard({ team }) {
           View team
         </Link>
       </div>
+      {team.stats && (
+        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-white/60">
+          <div>Races: {team.stats.races}</div>
+          <div>Wins: {team.stats.wins}</div>
+          <div>Podiums: {team.stats.podiums}</div>
+          <div>Points: {team.stats.total_points}</div>
+        </div>
+      )}
     </motion.div>
   );
 }

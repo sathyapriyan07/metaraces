@@ -7,6 +7,7 @@ export default function ConstructorDetails() {
   const [team, setTeam] = useState(null);
   const [results, setResults] = useState([]);
   const [driversBySeason, setDriversBySeason] = useState([]);
+  const [careerStats, setCareerStats] = useState(null);
 
   useEffect(() => {
     if (!hasSupabase()) return;
@@ -21,8 +22,16 @@ export default function ConstructorDetails() {
       if (!teamRow) {
         setResults([]);
         setDriversBySeason([]);
+        setCareerStats(null);
         return;
       }
+
+      const { data: statsRow } = await supabase
+        .from("constructor_career_stats")
+        .select("*")
+        .eq("constructor_id", teamRow.id)
+        .single();
+      setCareerStats(statsRow || null);
 
       const { data: resultsRows } = await supabase
         .from("results")
@@ -89,6 +98,15 @@ export default function ConstructorDetails() {
               <div>Nationality: {team.nationality}</div>
               <div>ID: {team.constructor_id}</div>
             </div>
+            {careerStats && (
+              <div className="mt-4 grid gap-2 text-sm text-white/70">
+                <div>Races: {careerStats.races}</div>
+                <div>Wins: {careerStats.wins}</div>
+                <div>Podiums: {careerStats.podiums}</div>
+                <div>Points: {careerStats.total_points}</div>
+                <div>Seasons: {careerStats.seasons_active}</div>
+              </div>
+            )}
           </div>
         </div>
       </section>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Pagination from "../components/Pagination.jsx";
-import { fetchTable, hasSupabase } from "../services/supabaseClient";
+import { fetchTable, hasSupabase, supabase } from "../services/supabaseClient";
 import { Link } from "react-router-dom";
 
 export default function Constructors() {
@@ -15,7 +15,24 @@ export default function Constructors() {
       const res = await fetchTable("constructors", {
         order: { column: "name", ascending: true },
       });
-      setTeams(res.data);
+      const teams = res.data || [];
+      if (!teams.length) {
+        setTeams([]);
+        return;
+      }
+      const ids = teams.map((team) => team.id).filter(Boolean);
+      const { data: statsRows } = await supabase
+        .from("constructor_career_stats")
+        .select("constructor_id, races, wins, podiums, total_points")
+        .in("constructor_id", ids);
+      const statsMap = new Map(
+        (statsRows || []).map((row) => [row.constructor_id, row])
+      );
+      const merged = teams.map((team) => ({
+        ...team,
+        stats: statsMap.get(team.id) || null,
+      }));
+      setTeams(merged);
     };
     load();
   }, []);

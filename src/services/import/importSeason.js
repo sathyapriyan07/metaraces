@@ -162,8 +162,8 @@ export async function importSeason(year, options = {}) {
     const seen = new Set();
     const results = [];
     rawResults.forEach((row) => {
-      const key = `${row.race_id}-${row.driver_id}`;
-      if (!row.driver_id || seen.has(key)) return;
+      const key = `${row.race_id}-${row.driver_id}-${row.constructor_id}`;
+      if (!row.driver_id || !row.constructor_id || seen.has(key)) return;
       seen.add(key);
       results.push(row);
     });
@@ -172,10 +172,10 @@ export async function importSeason(year, options = {}) {
     log(`Race ${raceKey}: unique results ${results.length}`);
     log(`Race ${raceKey}: skipped duplicates ${skipped}`);
 
-    const chunkSize = 50;
+    const chunkSize = 25;
     for (let idx = 0; idx < results.length; idx += chunkSize) {
       const chunk = results.slice(idx, idx + chunkSize);
-      await upsertRows("results", chunk, "race_id,driver_id");
+      await upsertRows("results", chunk, "race_id,driver_id,constructor_id");
     }
     log(`Race ${raceKey}: inserted ${results.length}`);
 

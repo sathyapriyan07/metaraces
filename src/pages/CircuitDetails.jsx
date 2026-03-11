@@ -34,12 +34,11 @@ export default function CircuitDetails() {
       if (raceRows?.length) {
         const raceIds = raceRows.map((race) => race.id);
         const { data: winnerRows } = await supabase
-          .from("results")
+          .from("race_winners")
           .select(
-            "position, race_id, race:races(name,season_year,round), driver:drivers(given_name,family_name,driver_id)"
+            "race_id, race_name, season_year, round, driver_id, given_name, family_name"
           )
-          .in("race_id", raceIds)
-          .eq("position", 1);
+          .in("race_id", raceIds);
         setWinners(winnerRows || []);
       } else {
         setWinners([]);
@@ -134,12 +133,12 @@ export default function CircuitDetails() {
             </thead>
             <tbody>
               {winners.map((row, index) => (
-                <tr key={`${row.race?.name}-${index}`} className="border-t border-white/5">
-                  <td className="py-2 pr-3">{row.race?.season_year || "--"}</td>
-                  <td className="py-2 pr-3">{row.race?.name || "--"}</td>
+                <tr key={`${row.race_id}-${index}`} className="border-t border-white/5">
+                  <td className="py-2 pr-3">{row.season_year || "--"}</td>
+                  <td className="py-2 pr-3">{row.race_name || "--"}</td>
                   <td className="py-2 pr-3">
-                    {row.driver
-                      ? `${row.driver.given_name} ${row.driver.family_name}`
+                    {row.given_name
+                      ? `${row.given_name} ${row.family_name}`
                       : "--"}
                   </td>
                 </tr>
