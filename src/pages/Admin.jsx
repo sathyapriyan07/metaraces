@@ -338,7 +338,7 @@ export default function Admin({ initialSection = "dashboard" }) {
   const [apiYear, setApiYear] = useState(new Date().getFullYear());
   const [ergastSeason, setErgastSeason] = useState(new Date().getFullYear());
   const [ergastRound, setErgastRound] = useState(1);
-  const [ergastLoading, setErgastLoading] = useState(false);
+  const [ergastImportState, setErgastImportState] = useState({});
   const [seasonImportYear, setSeasonImportYear] = useState(
     new Date().getFullYear()
   );
@@ -551,173 +551,456 @@ export default function Admin({ initialSection = "dashboard" }) {
     }
   };
 
-  const handleErgastImport = async (type) => {
+  const setErgastState = (key, patch) => {
+    setErgastImportState((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] || {}), ...patch },
+    }));
+  };
+
+  const validateSeason = (value) => {
+    const year = Number(value);
+    const currentYear = new Date().getFullYear();
+    if (!year || Number.isNaN(year)) return "Season must be a number.";
+    if (year < 1950 || year > currentYear) {
+      return `Season must be between 1950 and ${currentYear}.`;
+    }
+    return null;
+  };
+
+  const validateRound = (value) => {
+    const round = Number(value);
+    if (!round || Number.isNaN(round)) return "Round must be a number.";
+    if (round <= 0) return "Round must be greater than 0.";
+    return null;
+  };
+
+  const handleErgastError = (error, key) => {
+    if (error?.message === "API timeout") {
+      setErgastState(key, { error: "API unreachable (timeout)." });
+      return;
+    }
+    if (error?.message === "API request failed") {
+      setErgastState(key, { error: "API unreachable." });
+      return;
+    }
+    if (error?.message === "No data returned") {
+      setErgastState(key, { error: "No data returned." });
+      return;
+    }
+    if (error?.message === "Invalid API response") {
+      setErgastState(key, { error: "Invalid API response." });
+      return;
+    }
+    if (
+      error?.message?.toLowerCase().includes("network") ||
+      error?.message?.toLowerCase().includes("failed to fetch")
+    ) {
+      setErgastState(key, { error: "Network error." });
+      return;
+    }
+    if (error?.message?.toLowerCase().includes("supabase")) {
+      setErgastState(key, { error: "Supabase insert error." });
+      return;
+    }
+    setErgastState(key, { error: "API unreachable." });
+  };
+
+  const importDrivers = async () => {
+    const key = "drivers";
     if (!hasSupabase()) return;
-    setErgastLoading(true);
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: ["Importing drivers..."],
+      status: "",
+    });
     try {
-      if (type === "drivers") {
-        const mapped = mapErgastDrivers(await getDrivers());
-        if (!mapped.length) {
-          setStatus("No drivers returned from Ergast.");
-          return;
-        }
-        const { error } = await supabase.from("drivers").upsert(mapped, {
-          onConflict: "driver_id",
-        });
-        if (error) throw error;
-        setStatus(`Imported ${mapped.length} drivers from Ergast.`);
-        return;
-      }
-      if (type === "constructors") {
-        const mapped = mapErgastConstructors(await getConstructors());
-        if (!mapped.length) {
-          setStatus("No constructors returned from Ergast.");
-          return;
-        }
-        const { error } = await supabase.from("constructors").upsert(mapped, {
-          onConflict: "constructor_id",
-        });
-        if (error) throw error;
-        setStatus(`Imported ${mapped.length} constructors from Ergast.`);
-        return;
-      }
-      if (type === "circuits") {
-        const mapped = mapErgastCircuits(await getCircuits());
-        if (!mapped.length) {
-          setStatus("No circuits returned from Ergast.");
-          return;
-        }
-        const { error } = await supabase.from("circuits").upsert(mapped, {
+      const drivers = await getDrivers();
+      setErgastState(key, {
+        log: ["Importing drivers...", `Processing ${drivers.length} drivers...`],
+      });
+      const mapped = mapErgastDrivers(drivers);
+      const { error } = await supabase.from("drivers").upsert(mapped, {
+        onConflict: "driver_id",
+      });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          "Importing drivers...",
+          `Processing ${drivers.length} drivers...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
+    } catch (error) {
+      handleErgastError(error, key);
+    } finally {
+      setErgastState(key, { loading: false });
+    }
+  };
+
+  const importConstructors = async () => {
+    const key = "constructors";
+    if (!hasSupabase()) return;
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: ["Importing constructors..."],
+      status: "",
+    });
+    try {
+      const constructors = await getConstructors();
+      setErgastState(key, {
+        log: [
+          "Importing constructors...",
+          `Processing ${constructors.length} constructors...`,
+        ],
+      });
+      const mapped = mapErgastConstructors(constructors);
+      const { error } = await supabase.from("constructors").upsert(mapped, {
+        onConflict: "constructor_id",
+      });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          "Importing constructors...",
+          `Processing ${constructors.length} constructors...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
+    } catch (error) {
+      handleErgastError(error, key);
+    } finally {
+      setErgastState(key, { loading: false });
+    }
+  };
+
+  const importCircuits = async () => {
+    const key = "circuits";
+    if (!hasSupabase()) return;
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: ["Importing circuits..."],
+      status: "",
+    });
+    try {
+      const circuits = await getCircuits();
+      setErgastState(key, {
+        log: [
+          "Importing circuits...",
+          `Processing ${circuits.length} circuits...`,
+        ],
+      });
+      const mapped = mapErgastCircuits(circuits);
+      const { error } = await supabase.from("circuits").upsert(mapped, {
+        onConflict: "circuit_id",
+      });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          "Importing circuits...",
+          `Processing ${circuits.length} circuits...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
+    } catch (error) {
+      handleErgastError(error, key);
+    } finally {
+      setErgastState(key, { loading: false });
+    }
+  };
+
+  const importSeasons = async () => {
+    const key = "seasons";
+    if (!hasSupabase()) return;
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: ["Importing seasons..."],
+      status: "",
+    });
+    try {
+      const seasons = await getSeasons();
+      setErgastState(key, {
+        log: ["Importing seasons...", `Processing ${seasons.length} seasons...`],
+      });
+      const mapped = mapErgastSeasons(seasons);
+      const { error } = await supabase.from("seasons").upsert(mapped, {
+        onConflict: "season_id",
+      });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          "Importing seasons...",
+          `Processing ${seasons.length} seasons...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
+    } catch (error) {
+      handleErgastError(error, key);
+    } finally {
+      setErgastState(key, { loading: false });
+    }
+  };
+
+  const importSeasonRaces = async () => {
+    const key = "season_races";
+    if (!hasSupabase()) return;
+    const seasonError = validateSeason(ergastSeason);
+    if (seasonError) {
+      setErgastState(key, { error: seasonError });
+      return;
+    }
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: [`Importing races for ${ergastSeason}...`],
+      status: "",
+    });
+    try {
+      const ergastRaces = await getSeasonRaces(ergastSeason);
+      const races = mapErgastRaces(ergastRaces);
+      setErgastState(key, {
+        log: [
+          `Importing races for ${ergastSeason}...`,
+          `Processing ${races.length} races...`,
+        ],
+      });
+      const circuitRows = mapErgastRaceCircuits(ergastRaces);
+      if (circuitRows.length) {
+        const { error } = await supabase.from("circuits").upsert(circuitRows, {
           onConflict: "circuit_id",
         });
-        if (error) throw error;
-        setStatus(`Imported ${mapped.length} circuits from Ergast.`);
-        return;
+        if (error) throw new Error(`Supabase insert error: ${error.message}`);
       }
-      if (type === "seasons") {
-        const mapped = mapErgastSeasons(await getSeasons());
-        if (!mapped.length) {
-          setStatus("No seasons returned from Ergast.");
-          return;
-        }
-        const { error } = await supabase.from("seasons").upsert(mapped, {
-          onConflict: "season_id",
-        });
-        if (error) throw error;
-        setStatus(`Imported ${mapped.length} seasons from Ergast.`);
-        return;
-      }
-      if (type === "season_races") {
-        const ergastRaces = await getSeasonRaces(ergastSeason);
-        const races = mapErgastRaces(ergastRaces);
-        if (!races.length) {
-          setStatus("No races returned from Ergast.");
-          return;
-        }
+      const { error } = await supabase.from("races").upsert(races, {
+        onConflict: "race_id",
+      });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          `Importing races for ${ergastSeason}...`,
+          `Processing ${races.length} races...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
+    } catch (error) {
+      handleErgastError(error, key);
+    } finally {
+      setErgastState(key, { loading: false });
+    }
+  };
+
+  const importRaceResults = async () => {
+    const key = "race_results";
+    if (!hasSupabase()) return;
+    const seasonError = validateSeason(ergastSeason);
+    const roundError = validateRound(ergastRound);
+    if (seasonError || roundError) {
+      setErgastState(key, { error: seasonError || roundError });
+      return;
+    }
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: [
+        `Importing results for ${ergastSeason} round ${ergastRound}...`,
+      ],
+      status: "",
+    });
+    try {
+      const [ergastRaces, ergastResults] = await Promise.all([
+        getSeasonRaces(ergastSeason),
+        getRaceResults(ergastSeason, ergastRound),
+      ]);
+      const raceId = `${ergastSeason}-${ergastRound}`;
+      const races = mapErgastRaces(ergastRaces).filter(
+        (race) => race.race_id === raceId
+      );
+      const results = mapErgastResults(
+        ergastResults,
+        ergastSeason,
+        ergastRound
+      );
+      setErgastState(key, {
+        log: [
+          `Importing results for ${ergastSeason} round ${ergastRound}...`,
+          `Processing ${results.length} results...`,
+        ],
+      });
+      if (races.length) {
         const circuitRows = mapErgastRaceCircuits(ergastRaces);
         if (circuitRows.length) {
-          const { error } = await supabase.from("circuits").upsert(circuitRows, {
-            onConflict: "circuit_id",
-          });
-          if (error) throw error;
+          const { error } = await supabase
+            .from("circuits")
+            .upsert(circuitRows, { onConflict: "circuit_id" });
+          if (error) throw new Error(`Supabase insert error: ${error.message}`);
         }
         const { error } = await supabase.from("races").upsert(races, {
           onConflict: "race_id",
         });
-        if (error) throw error;
-        setStatus(`Imported ${races.length} races for ${ergastSeason}.`);
-        return;
+        if (error) throw new Error(`Supabase insert error: ${error.message}`);
       }
-      if (type === "race_results") {
-        const [ergastRaces, ergastResults] = await Promise.all([
-          getSeasonRaces(ergastSeason),
-          getRaceResults(ergastSeason, ergastRound),
-        ]);
-        const raceId = `${ergastSeason}-${ergastRound}`;
-        const races = mapErgastRaces(ergastRaces).filter(
-          (race) => race.race_id === raceId
-        );
-        if (races.length) {
-          const circuitRows = mapErgastRaceCircuits(ergastRaces);
-          if (circuitRows.length) {
-            const { error } = await supabase
-              .from("circuits")
-              .upsert(circuitRows, { onConflict: "circuit_id" });
-            if (error) throw error;
-          }
-          const { error } = await supabase.from("races").upsert(races, {
-            onConflict: "race_id",
-          });
-          if (error) throw error;
-        }
-        const results = mapErgastResults(
-          ergastResults,
-          ergastSeason,
-          ergastRound
-        );
-        if (!results.length) {
-          setStatus("No race results returned from Ergast.");
-          return;
-        }
-        const { error } = await supabase.from("results").upsert(results, {
-          onConflict: "result_id",
-        });
-        if (error) throw error;
-        setStatus(
-          `Imported ${results.length} results for ${ergastSeason} round ${ergastRound}.`
-        );
-        return;
-      }
-      if (type === "driver_standings") {
-        const standings = await getDriverStandings(ergastSeason);
-        const mapped = mapErgastDriverStandings(standings, ergastSeason);
-        if (!mapped.length) {
-          setStatus("No driver standings returned from Ergast.");
-          return;
-        }
-        const { error } = await supabase
-          .from("driver_standings")
-          .upsert(mapped, { onConflict: "id" });
-        if (error) throw error;
-        setStatus(`Imported driver standings for ${ergastSeason}.`);
-        return;
-      }
-      if (type === "constructor_standings") {
-        const standings = await getConstructorStandings(ergastSeason);
-        const mapped = mapErgastConstructorStandings(
-          standings,
-          ergastSeason
-        );
-        if (!mapped.length) {
-          setStatus("No constructor standings returned from Ergast.");
-          return;
-        }
-        const { error } = await supabase
-          .from("constructor_standings")
-          .upsert(mapped, { onConflict: "id" });
-        if (error) throw error;
-        setStatus(`Imported constructor standings for ${ergastSeason}.`);
-        return;
-      }
-      if (type === "pit_stops") {
-        const stops = await getPitStops(ergastSeason, ergastRound);
-        const mapped = mapErgastPitStops(stops, ergastSeason, ergastRound);
-        if (!mapped.length) {
-          setStatus("No pit stop data returned from Ergast.");
-          return;
-        }
-        const { error } = await supabase.from("pit_stops").upsert(mapped, {
-          onConflict: "id",
-        });
-        if (error) throw error;
-        setStatus(
-          `Imported ${mapped.length} pit stops for ${ergastSeason} round ${ergastRound}.`
-        );
-      }
+      const { error } = await supabase.from("results").upsert(results, {
+        onConflict: "result_id",
+      });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          `Importing results for ${ergastSeason} round ${ergastRound}...`,
+          `Processing ${results.length} results...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
     } catch (error) {
-      setStatus(error.message || "Failed to import Ergast data.");
+      handleErgastError(error, key);
     } finally {
-      setErgastLoading(false);
+      setErgastState(key, { loading: false });
+    }
+  };
+
+  const importDriverStandings = async () => {
+    const key = "driver_standings";
+    if (!hasSupabase()) return;
+    const seasonError = validateSeason(ergastSeason);
+    if (seasonError) {
+      setErgastState(key, { error: seasonError });
+      return;
+    }
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: [`Importing driver standings for ${ergastSeason}...`],
+      status: "",
+    });
+    try {
+      const standings = await getDriverStandings(ergastSeason);
+      setErgastState(key, {
+        log: [
+          `Importing driver standings for ${ergastSeason}...`,
+          `Processing ${standings.length} standings...`,
+        ],
+      });
+      const mapped = mapErgastDriverStandings(standings, ergastSeason);
+      const { error } = await supabase
+        .from("driver_standings")
+        .upsert(mapped, { onConflict: "id" });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          `Importing driver standings for ${ergastSeason}...`,
+          `Processing ${standings.length} standings...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
+    } catch (error) {
+      handleErgastError(error, key);
+    } finally {
+      setErgastState(key, { loading: false });
+    }
+  };
+
+  const importConstructorStandings = async () => {
+    const key = "constructor_standings";
+    if (!hasSupabase()) return;
+    const seasonError = validateSeason(ergastSeason);
+    if (seasonError) {
+      setErgastState(key, { error: seasonError });
+      return;
+    }
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: [`Importing constructor standings for ${ergastSeason}...`],
+      status: "",
+    });
+    try {
+      const standings = await getConstructorStandings(ergastSeason);
+      setErgastState(key, {
+        log: [
+          `Importing constructor standings for ${ergastSeason}...`,
+          `Processing ${standings.length} standings...`,
+        ],
+      });
+      const mapped = mapErgastConstructorStandings(standings, ergastSeason);
+      const { error } = await supabase
+        .from("constructor_standings")
+        .upsert(mapped, { onConflict: "id" });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          `Importing constructor standings for ${ergastSeason}...`,
+          `Processing ${standings.length} standings...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
+    } catch (error) {
+      handleErgastError(error, key);
+    } finally {
+      setErgastState(key, { loading: false });
+    }
+  };
+
+  const importPitStops = async () => {
+    const key = "pit_stops";
+    if (!hasSupabase()) return;
+    const seasonError = validateSeason(ergastSeason);
+    const roundError = validateRound(ergastRound);
+    if (seasonError || roundError) {
+      setErgastState(key, { error: seasonError || roundError });
+      return;
+    }
+    setErgastState(key, {
+      loading: true,
+      error: "",
+      log: [
+        `Importing pit stops for ${ergastSeason} round ${ergastRound}...`,
+      ],
+      status: "",
+    });
+    try {
+      const stops = await getPitStops(ergastSeason, ergastRound);
+      setErgastState(key, {
+        log: [
+          `Importing pit stops for ${ergastSeason} round ${ergastRound}...`,
+          `Processing ${stops.length} pit stops...`,
+        ],
+      });
+      const mapped = mapErgastPitStops(stops, ergastSeason, ergastRound);
+      const { error } = await supabase.from("pit_stops").upsert(mapped, {
+        onConflict: "id",
+      });
+      if (error) throw new Error(`Supabase insert error: ${error.message}`);
+      setErgastState(key, {
+        status: "Imported successfully.",
+        log: [
+          `Importing pit stops for ${ergastSeason} round ${ergastRound}...`,
+          `Processing ${stops.length} pit stops...`,
+          "Saving to database...",
+          "Import completed.",
+        ],
+      });
+    } catch (error) {
+      handleErgastError(error, key);
+    } finally {
+      setErgastState(key, { loading: false });
     }
   };
 
@@ -1714,68 +1997,115 @@ export default function Admin({ initialSection = "dashboard" }) {
                 </div>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button
-                    onClick={() => handleErgastImport("drivers")}
-                    disabled={ergastLoading}
+                    onClick={importDrivers}
+                    disabled={ergastImportState.drivers?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Drivers
+                    {ergastImportState.drivers?.loading
+                      ? "Loading..."
+                      : "Import Drivers"}
                   </button>
                   <button
-                    onClick={() => handleErgastImport("constructors")}
-                    disabled={ergastLoading}
+                    onClick={importConstructors}
+                    disabled={ergastImportState.constructors?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Constructors
+                    {ergastImportState.constructors?.loading
+                      ? "Loading..."
+                      : "Import Constructors"}
                   </button>
                   <button
-                    onClick={() => handleErgastImport("circuits")}
-                    disabled={ergastLoading}
+                    onClick={importCircuits}
+                    disabled={ergastImportState.circuits?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Circuits
+                    {ergastImportState.circuits?.loading
+                      ? "Loading..."
+                      : "Import Circuits"}
                   </button>
                   <button
-                    onClick={() => handleErgastImport("seasons")}
-                    disabled={ergastLoading}
+                    onClick={importSeasons}
+                    disabled={ergastImportState.seasons?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Seasons
+                    {ergastImportState.seasons?.loading
+                      ? "Loading..."
+                      : "Import Seasons"}
                   </button>
                   <button
-                    onClick={() => handleErgastImport("season_races")}
-                    disabled={ergastLoading}
+                    onClick={importSeasonRaces}
+                    disabled={ergastImportState.season_races?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Season Races
+                    {ergastImportState.season_races?.loading
+                      ? "Loading..."
+                      : "Import Season Races"}
                   </button>
                   <button
-                    onClick={() => handleErgastImport("race_results")}
-                    disabled={ergastLoading}
+                    onClick={importRaceResults}
+                    disabled={ergastImportState.race_results?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Race Results
+                    {ergastImportState.race_results?.loading
+                      ? "Loading..."
+                      : "Import Race Results"}
                   </button>
                   <button
-                    onClick={() => handleErgastImport("driver_standings")}
-                    disabled={ergastLoading}
+                    onClick={importDriverStandings}
+                    disabled={ergastImportState.driver_standings?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Driver Standings
+                    {ergastImportState.driver_standings?.loading
+                      ? "Loading..."
+                      : "Import Driver Standings"}
                   </button>
                   <button
-                    onClick={() => handleErgastImport("constructor_standings")}
-                    disabled={ergastLoading}
+                    onClick={importConstructorStandings}
+                    disabled={ergastImportState.constructor_standings?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Constructor Standings
+                    {ergastImportState.constructor_standings?.loading
+                      ? "Loading..."
+                      : "Import Constructor Standings"}
                   </button>
                   <button
-                    onClick={() => handleErgastImport("pit_stops")}
-                    disabled={ergastLoading}
+                    onClick={importPitStops}
+                    disabled={ergastImportState.pit_stops?.loading}
                     className="rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 disabled:opacity-50"
                   >
-                    Import Pit Stops
+                    {ergastImportState.pit_stops?.loading
+                      ? "Loading..."
+                      : "Import Pit Stops"}
                   </button>
+                </div>
+                <div className="mt-4 grid gap-3 text-xs text-white/60">
+                  {Object.entries(ergastImportState).map(([key, state]) => (
+                    <div
+                      key={key}
+                      className="rounded-2xl border border-white/10 bg-black/60 p-3"
+                    >
+                      <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">
+                        {key.replace(/_/g, " ")}
+                      </div>
+                      {state?.status && (
+                        <div className="mt-2 text-white/80">
+                          {state.status}
+                        </div>
+                      )}
+                      {state?.error && (
+                        <div className="mt-2 text-rose-200">
+                          {state.error}
+                        </div>
+                      )}
+                      {state?.log?.length ? (
+                        <div className="mt-2 grid gap-1 text-white/60">
+                          {state.log.map((line, index) => (
+                            <div key={`${key}-${index}`}>{line}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
               </section>
             )}

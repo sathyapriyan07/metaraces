@@ -1,6 +1,6 @@
 const OPENF1_BASE = "https://api.openf1.org/v1";
-const ERGAST_BASE = "https://ergast.com/api/f1";
-const JOLPICA_BASE = "https://api.jolpica.com/ergast/f1";
+const ERGAST_BASE = "https://api.jolpi.ca/ergast/f1";
+const JOLPICA_BASE = "https://api.jolpi.ca/ergast/f1";
 
 export async function fetchOpenF1RaceWeekends(year) {
   const [sessionsRes, meetingsRes] = await Promise.all([
