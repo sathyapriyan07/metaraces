@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { searchAll, hasSupabase } from "../services/supabaseClient";
 
 const navLinkBase =
-  "text-sm uppercase tracking-[0.18em] transition-colors hover:text-white";
+  "text-xs uppercase tracking-[0.18em] whitespace-nowrap transition-colors hover:text-white";
 
 export default function Navbar() {
   const [query, setQuery] = useState("");
@@ -45,16 +45,18 @@ export default function Navbar() {
   }, [query]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-white/10 bg-black/90 backdrop-blur-md">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 md:px-8">
-        <Link to="/" className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full border border-white/15 bg-f1red/20" />
-          <div className="font-f1wide text-lg uppercase tracking-[0.25em]">
+    <header className="sticky top-0 z-[100] border-b border-white/10 bg-black/70 backdrop-blur-md">
+      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 md:px-8">
+        <div className="flex h-[60px] items-center justify-between">
+          <Link to="/" className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-f1red" />
+          </Link>
+          <div className="font-f1wide text-lg uppercase tracking-[0.3em] text-white">
             F1 Archive
           </div>
-        </Link>
+        </div>
 
-        <nav className="flex flex-wrap items-center gap-5 text-white/70">
+        <nav className="scrollbar-hidden flex items-center gap-[18px] overflow-x-auto whitespace-nowrap text-white/70">
           {[
             ["/seasons", "Seasons"],
             ["/drivers", "Drivers"],
@@ -67,7 +69,9 @@ export default function Navbar() {
               key={to}
               to={to}
               className={({ isActive }) =>
-                `${navLinkBase} ${isActive ? "text-white" : "text-white/60"}`
+                `${navLinkBase} ${
+                  isActive ? "text-white" : "text-white/60"
+                }`
               }
             >
               {label}
@@ -75,7 +79,7 @@ export default function Navbar() {
           ))}
         </nav>
 
-        <div className="relative w-full max-w-xs md:w-auto">
+        <div className="relative">
           <input
             type="search"
             value={query}
@@ -86,7 +90,7 @@ export default function Navbar() {
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
             placeholder="Search drivers, teams, circuits..."
-            className="w-full rounded-full border border-white/10 bg-black/80 px-4 py-2 text-sm text-white placeholder:text-white/40 focus:border-f1red/60 focus:outline-none"
+            className="w-full rounded-[30px] border border-white/10 bg-black/80 px-4 py-3 text-sm text-white placeholder:text-white/40 focus:border-f1red/60 focus:outline-none"
           />
           {open && query.length > 2 && !hasSupabase() && (
             <div className="absolute mt-2 w-full rounded-2xl border border-white/10 bg-black/90 p-4 text-xs text-white/60">
