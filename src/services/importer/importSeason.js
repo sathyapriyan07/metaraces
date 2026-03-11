@@ -198,20 +198,29 @@ export async function importSeason(year, options = {}) {
     }
     log(`Inserted rows: ${results.length}`);
 
-    const historyRows = resultRows.map((result) => ({
-      driver_id: driverIdMap.get(result.Driver?.driverId) || null,
-      constructor_id:
-        constructorIdMap.get(result.Constructor?.constructorId) || null,
-      season_year: toNumber(year),
-      race_id: raceUuid,
-      round: toNumber(round),
-      start_round: toNumber(round),
-      end_round: toNumber(round),
-    }));
+    const assignmentMap = new Map();
+    resultRows.forEach((result) => {
+      const driver = driverIdMap.get(result.Driver?.driverId) || null;
+      const constructor =
+        constructorIdMap.get(result.Constructor?.constructorId) || null;
+      if (!driver || !constructor) return;
+      const key = `${raceUuid}-${driver}-${constructor}`;
+      if (assignmentMap.has(key)) return;
+      assignmentMap.set(key, {
+        driver_id: driver,
+        constructor_id: constructor,
+        season_year: toNumber(year),
+        race_id: raceUuid,
+        round: toNumber(round),
+        start_round: toNumber(round),
+        end_round: toNumber(round),
+      });
+    });
+    const historyRows = Array.from(assignmentMap.values());
     await upsertRows(
       "driver_constructor_history",
       historyRows,
-      "driver_id,constructor_id,season_year,race_id"
+      "race_id,driver_id,constructor_id"
     );
 
     if (includeQualifying) {

@@ -517,7 +517,7 @@ export default function Admin({ initialSection = "dashboard" }) {
         const { error: upsertError } = await supabase
           .from("driver_constructor_history")
           .upsert(rows, {
-            onConflict: "driver_id,constructor_id,season_year,race_id",
+            onConflict: "race_id,driver_id,constructor_id",
           });
         if (upsertError) {
           throw new Error(`Supabase insert error: ${upsertError.message}`);

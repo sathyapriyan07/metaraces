@@ -155,6 +155,15 @@ alter table public.results
 alter table public.results
   add constraint results_unique unique (race_id, driver_id, constructor_id);
 
+alter table public.driver_constructor_history
+  add column if not exists round integer;
+
+alter table public.driver_constructor_history
+  drop constraint if exists driver_constructor_unique;
+
+alter table public.driver_constructor_history
+  add constraint driver_constructor_unique unique (race_id, driver_id, constructor_id);
+
 create or replace view public.driver_career_stats as
 select
   d.id as driver_id,
